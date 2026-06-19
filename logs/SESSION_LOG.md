@@ -54,3 +54,12 @@ Commit: –
   - H6 decoder_acc=1.000, PR=1.0
 - Fixed bug in train.py:44 — missing .detach() on w_GD tensor before float()
 - Added Code/venv/, __pycache__/ to .gitignore
+
+## 2026-06-19 — notes: diffsupervisorv1 comparison
+Commit: –
+
+- Wrote diffsupervisorv1.md comparing my implementation vs supervisor's tunl_a2c_two_area.py
+- Key finding: my version is trivial in 3 compounding ways:
+  (1) sample phase is scripted (agent not in control)
+  (2) arm identity persists as a non-decaying one-hot in the allocentric observation
+  (3) delay only 10 steps, no curriculum
