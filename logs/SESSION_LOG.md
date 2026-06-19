@@ -86,3 +86,23 @@ Commit: 7a6ffd4
 - Added evaluate_vec(): runs ceil(n/B) batches of B=32 parallel envs (BLAS-3), 11.4x faster (7.1s → 0.62s per checkpoint)
 - Result: 735% CPU (7+ cores, fans now active) vs 148% before
 - 256-neuron run launched at /tmp/dopa_256v3 (PID 182275)
+
+## 2026-06-20 — perf: batch_size 32->128 + pin BLAS to physical cores
+Commit: 059bb13
+
+- CPU saturation work for Code/main on AMD Ryzen 7 8840HS (8 physical / 16 logical cores).
+- Benchmarked batch_size x thread combos on _train_batch (n_gd=n_hab=256): B=32/8t=276 ep/s, B=128/8t=469, B=256/8t=540; B=64/16t=232 and B=128/16t=305 (16 threads thrash SMT siblings, LOWER throughput).
+- Confirmed 2 procs x 4 threads = ~803 ep/s aggregate vs 1 proc x 8t = 465 (option-3 multiprocessing would nearly 2x but yields K independent models = algorithm change; skipped per medium-effort rule).
+- Applied options 1+2: batch_size 32->128 in config.py; torch.set_num_threads pinned to physical cores (logical//2) in train.py and run_experiment.py, DOPA_NUM_THREADS override.
+- v3 run had already finished training; crashed only in post-hoc sklearn decoder (one-class data, H6) — separate pre-existing issue. PID 182275 already dead.
+- Launched v4 at /tmp/dopa_256v4 (PID 185241): steady-state ~740-770% CPU (~7.5/8 physical cores), ~2x throughput vs v3. Single-process ceiling; 1600% needs multiprocessing (not done).
+
+## 2026-06-20 — fix: learning failure (sparse reward, WAIT bias, delay)
+Commit: 5e329ea
+
+- Diagnosed 0 0x0p+0ccuracy root causes: (1) WAIT cheaper than moves → policy collapsed to WAIT at START; (2) sparse reward, only +1.0 at final choice; (3) delay_start=1 put agent AT sampled arm end when choice begins → 4/5 actions immediately wrong
+- Fixes: wait_cost=step_cost=0.02; junction_bonus=+0.30/arm_end_bonus=+0.20 (dense shaping); delay_start=5 (buffer to leave arm end)
+- Stochastic baseline: 5% → 16%
+- Result v5 run: model learns — comb/hab/gd all hit 1.00 at ep 21760 (delay=6); curriculum advanced to delay=10 by ep 32000
+- w_GD: 0.80 → 0.38 (handoff happening as designed)
+- Next: more episodes (60k+) needed to train through delay=10+
