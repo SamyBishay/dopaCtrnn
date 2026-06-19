@@ -4,7 +4,8 @@ Append-only. One dated entry per session.
 
 ---
 
-## 2026-06-19
+## 2026-06-19 — init: vault structure, paper notes, GOALS, CLAUDE.md, SESSION_LOG
+Commit: 956a7da
 
 **Vault initialization and restructuring:**
 
