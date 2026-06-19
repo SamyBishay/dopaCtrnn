@@ -51,6 +51,7 @@ def main():
         logs = None
         ckpt_learn = ckpt_maint = copy.deepcopy(model.state_dict())
         train_trajs = []
+        eval_env.current_delay = cfg.delay_max   # compare H7 at same delay as trained model
     else:
         model, logs, ckpt_learn, ckpt_maint, train_trajs, final_delay = train(cfg)
         eval_env.current_delay = final_delay   # eval at the delay reached during training

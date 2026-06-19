@@ -70,14 +70,16 @@ def _train_episode(model, env, cfg, opt_gd, opt_hab, da_lambda, record=False):
     if cfg.da_request_training != "a2c_coupled":
         raise NotImplementedError(
             "OPEN #1: DA-request training '%s' is not implemented." % cfg.da_request_training)
-    gd_loss = (-(adv.detach() * logps).sum()
-               + cfg.value_coef * ((returns - values) ** 2).sum()
-               - cfg.entropy_beta * ents.sum()
-               + da_lambda * (das_t ** 2).sum())
-    # Expression-gated plasticity: when GD is not expressed (w_GD low) it is not
-    # updated, preserving the dormant policy for reactivation (H5).
+    # Expression-gated plasticity: when GD is not expressed (w_GD low) its
+    # POLICY gradient is suppressed, preserving the dormant solution for
+    # reactivation (H5). Critic and DA penalty continue updating so advantage
+    # estimates and DA cost remain valid during maintenance.
     expr_gate = torch.stack(ws).mean().detach().clamp(0.0, 1.0)
-    gd_loss = expr_gate * gd_loss
+    policy_loss = -(adv.detach() * logps).sum()
+    critic_loss = cfg.value_coef * ((returns - values) ** 2).sum()
+    entropy_loss = -cfg.entropy_beta * ents.sum()
+    da_penalty = da_lambda * (das_t ** 2).sum()
+    gd_loss = expr_gate * (policy_loss + entropy_loss) + critic_loss + da_penalty
 
     # ---- habitual: value-free APE + intrinsic efficiency (NO task reward) ----
     returns_int = discounted(int_rs, cfg.gamma, dev)
@@ -161,7 +163,13 @@ def train(cfg, verbose=True):
                       f"DA {comb['da_mean']:.2f} delay {env.current_delay}", flush=True)
 
     if ckpt_maint is None:
+        import warnings
+        warnings.warn("maint_solo_min never reached — ckpt_maint falls back to final weights. "
+                      "H3/H5 dissociation results may be invalid.")
         ckpt_maint = copy.deepcopy(model.state_dict())
     if ckpt_learn is None:
+        import warnings
+        warnings.warn("learn checkpoint never reached — ckpt_learn falls back to first_state. "
+                      "H3/H4 learning-phase results may be invalid.")
         ckpt_learn = first_state
     return model, logs, ckpt_learn, ckpt_maint, train_trajs, env.current_delay
