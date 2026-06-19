@@ -20,7 +20,7 @@ Anchored to [[yaghoubi2026]] (comprehensive review) and [[lloyd_tamping_2015]] (
 | Phenomenon | Failure Mode | References |
 |---|---|---|
 | **Reversibility & dormancy** | Classical learning is cumulative; cannot account for rapid extinction or dormant memory reactivation | [[villet2025]] |
-| **Online cognitive effects** | Does not predict how dopamine modulates working memory, attention, or cognitive flexibility in real-time decision-making | [[westbrook_striatal_2025]], [[cools_2019]] |
+| **Online cognitive effects** | Does not predict how dopamine modulates working memory, attention, or cognitive flexibility in real-time decision-making | [[westbrook_striatal_2025]], [[cools_chemistry_2019]] |
 | **Framing dependence** | Reward prediction error should be frame-invariant; empirically, dopamine responses shift with task framing and context | [[lloyd_reframing_2023]] |
 | **Value-free teaching** | Cannot explain dopamine's role in driving behavior when no explicit value signal is present | [[greenstreet_dopaminergic_2025]] |
 
@@ -36,7 +36,7 @@ Anchored to [[yaghoubi2026]] (comprehensive review) and [[lloyd_tamping_2015]] (
 
 - [[hamid_wave-like_2021]]: dopamine propagates as traveling waves across cortex and striatum, carrying directional information
 - [[frank_adaptive_2025]]: spatial heterogeneity in DA release correlates with flexible vs. habitual action selection  
-- [[cools_2019]]: receptor density distributions (D1/D2) create spatial specificity for stability-flexibility tradeoffs
+- [[cools_chemistry_2019]]: receptor density distributions (D1/D2) create spatial specificity for stability-flexibility tradeoffs
 
 **dopaCTRNN engagement:** Explicitly represents spatial geometry; the RNN state space can encode wave-like or distributed DA signals rather than assuming scalar homogeneity.
 
@@ -49,7 +49,7 @@ Anchored to [[yaghoubi2026]] (comprehensive review) and [[lloyd_tamping_2015]] (
 **New view:** D1 and D2 receptors implement antagonistic or context-dependent control functions.
 
 - [[frank_adaptive_2025]]: D1 stabilizes (persistence), D2 enables switching (exploration)  
-- [[cools_2011]] and [[cools_2019]]: inverted-U relationship—optimal DA levels differ for D1-dependent stability vs. D2-dependent flexibility  
+- [[cools_inverted-ushaped_2011]] and [[cools_chemistry_2019]]: inverted-U relationship—optimal DA levels differ for D1-dependent stability vs. D2-dependent flexibility  
 - [[jaskir_normative_nodate]]: normative models predict when D1 vs. D2 should dominate  
 - [[kutter_dopamine_2026]]: D1/D2 role assignment is learnable and context-dependent, not hard-wired
 
@@ -101,7 +101,7 @@ Anchored to [[yaghoubi2026]] (comprehensive review) and [[lloyd_tamping_2015]] (
 
 3. **Dimension 2 (D1/D2 Selectivity):** *Optional refinement*  
    - The model can parameterize separate pathways or learn their balance  
-   - Not required for basic function but can encode stability-flexibility constraints ([[cools_2019]], [[kutter_dopamine_2026]])
+   - Not required for basic function but can encode stability-flexibility constraints ([[cools_chemistry_2019]], [[kutter_dopamine_2026]])
 
 4. **Dimension 1 (Spatial Organization):** *Simplified*  
    - The RNN does not explicitly model dopamine waves or spatial gradients  
@@ -128,8 +128,8 @@ This design respects the empirical scope of newer dopamine models—particularly
 [[lloyd_reframing_2023]]  
 [[villet2025]]  
 [[westbrook_striatal_2025]]  
-[[cools_2019]]  
-[[cools_2011]]  
+[[cools_chemistry_2019]]  
+[[cools_inverted-ushaped_2011]]  
 [[greenstreet_dopaminergic_2025]]  
 [[hamid_wave-like_2021]]  
 [[frank_adaptive_2025]]  

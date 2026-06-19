@@ -131,13 +131,13 @@ My handover is soft and continuous (a sigmoid gate driven by DA penalty). The su
 
 ## 6. Handover mechanism
 
-| | Mine | Supervisor's |
-|---|---|---|
-| Mechanism | soft sigmoid gate: w_GD = σ(α·DA + bias) | hard binary switch |
-| Trigger | DA penalty ramp (schedule) | measured DLS solo accuracy vs. PFC solo accuracy |
-| Fallback | none — gate can drift back but isn't reset | explicit: DLS unfreezes PFC if it degrades |
-| Emergent or designed | emergent from pressure | explicit state machine |
-| Number of eval rollouts to decide | none (continuous) | 100 solo episodes every 5K steps |
+|                                   | Mine                                       | Supervisor's                                     |
+| --------------------------------- | ------------------------------------------ | ------------------------------------------------ |
+| Mechanism                         | soft sigmoid gate: w_GD = σ(α·DA + bias)   | hard binary switch                               |
+| Trigger                           | DA penalty ramp (schedule)                 | measured DLS solo accuracy vs. PFC solo accuracy |
+| Fallback                          | none — gate can drift back but isn't reset | explicit: DLS unfreezes PFC if it degrades       |
+| Emergent or designed              | emergent from pressure                     | explicit state machine                           |
+| Number of eval rollouts to decide | none (continuous)                          | 100 solo episodes every 5K steps                 |
 
 In my code the handover is emergent in the sense that no external code decides it — w_GD falls because the DA penalty makes it costly. But the schedule of that penalty is an external clock (episodes 1500–3000), not a function of DLS competence. In the supervisor's code the handover is competence-triggered: DLS only takes over when it has actually proven it can match PFC.
 

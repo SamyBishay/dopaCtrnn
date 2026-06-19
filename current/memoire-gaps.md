@@ -30,7 +30,7 @@ The Introduction and Method drafts narrate the *full Stage-5 dopamine handoff* (
    - Both are load-bearing references for actor-critic architectures and online plasticity.  
    - **Action:** Confirm in Zotero; if present, cite and quote. If absent, prioritize acquisition.
 
-5. **DA-wave citations ([[hamid2021a]], [[engel2024]]) flagged for removal.**  
+5. **DA-wave citations ([[hamid_wave-like_2021]], [[engel2024]]) flagged for removal.**  
    - Rationale: This model uses a single scalar dopamine signal, not spatial waves.  
    - **Action:** Remove or reframe to "empirical DA dynamics not captured in this simplified model."
 
@@ -137,7 +137,7 @@ The Introduction and Method drafts narrate the *full Stage-5 dopamine handoff* (
 
 - **Missing [[citekey]] anchors:** All prose-named citations ("Frank et al. showed...") must become wikilinks ([[frank2005]]).  
 - **Flagged for acquisition:** [[frank2005]], [[yaghoubi2026]] — confirm in Zotero; if absent, prioritize.  
-- **Flagged for removal:** [[hamid2021a]], [[engel2024]] — single scalar DA, not waves; reframe or delete.  
+- **Flagged for removal:** [[hamid_wave-like_2021]], [[engel2024]] — single scalar DA, not waves; reframe or delete.  
 - **Action:** Audit Zotero; add missing keys; run citation consistency check (prose name → [[citekey]]).
 
 ### 6. Terminology Drift

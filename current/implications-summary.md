@@ -33,7 +33,7 @@
 - **Conflict:** Other RL models (e.g., [[Daw2005]], [[Gershman2016]]) treat DA as proportional to prediction error (additive), not as a gating signal.
 
 ### Formal grounding requirement
-- **Missing:** No control-theoretic derivation justifying why multiplicative DA is optimal for handoff [[ProjectOverview]].
+- **Missing:** No control-theoretic derivation justifying why multiplicative DA is optimal for handoff [[Project overview a dopamine-mediated mechanism for the goal-directed-to-habitual handoff]].
 - **Needed:** Lyapunov analysis or reward-maximization proof that gain-modulation outperforms alternatives.
 
 ### Locality constraint
@@ -118,7 +118,7 @@
 
 ### DA request hypothesis (not yet central to literature)
 - **Concept:** When dopamine is needed (e.g., state unfamiliar, high outcome uncertainty), GD system sends a signal that enhances dopamine release.
-- **Purpose:** Ensure dopamine availability scales with control demand, not just reward prediction [[ProjectOverview]].
+- **Purpose:** Ensure dopamine availability scales with control demand, not just reward prediction [[Project overview a dopamine-mediated mechanism for the goal-directed-to-habitual handoff]].
 - **Mismatch with standard RL:** Standard RL ties DA to prediction error (passive); DA request ties DA to task difficulty (active feedback).
 
 ### Control-theoretic framing requirement
@@ -242,7 +242,7 @@
 - **Resolution needed:** Optogenetic/chemogenetic pathway-specific silencing; confirm GD and habit pathways are separable at synaptic level.
 
 ### Tension 10.8: OpAL* vs. DA-request asymmetry
-- **Source:** [[ProjectOverview]] proposes DA request (GD→DA); [[Gershman2016]] proposes asymmetric RL (value backs up differently in GD vs. habit).
+- **Source:** [[Project overview a dopamine-mediated mechanism for the goal-directed-to-habitual handoff]] proposes DA request (GD→DA); [[Gershman2016]] proposes asymmetric RL (value backs up differently in GD vs. habit).
 - **Conflict:** Can both coexist? Is one subsumed by the other?
 - **Resolution needed:** Formal analysis of composite model; behavioral predictions should differ from either alone.
 
