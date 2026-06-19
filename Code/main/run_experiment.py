@@ -13,7 +13,7 @@ import numpy as np
 import torch
 
 from config import Config
-from environment import TMazeDNMTP
+from environment import TMazeFreeNav, maze_layout
 from model import DualSystemModel
 from train import train
 import analysis as A
@@ -28,16 +28,22 @@ def main():
     ap.add_argument("--untrained", action="store_true")
     ap.add_argument("--fixed-points", action="store_true")
     ap.add_argument("--device", type=str, default="cpu")
+    ap.add_argument("--n-gd", type=int, default=None)
+    ap.add_argument("--n-hab", type=int, default=None)
     args = ap.parse_args()
 
     cfg = Config(seed=args.seed, device=args.device)
     if args.episodes is not None:
         cfg.episodes = args.episodes
+    if args.n_gd is not None:
+        cfg.n_gd = args.n_gd
+    if args.n_hab is not None:
+        cfg.n_hab = args.n_hab
 
     tag = f"seed{args.seed}" + ("_untrained" if args.untrained else "")
     outdir = os.path.join(args.outdir, tag)
     os.makedirs(outdir, exist_ok=True)
-    eval_env = TMazeDNMTP(cfg, np.random.default_rng(args.seed + 9_999))
+    eval_env = TMazeFreeNav(cfg, np.random.default_rng(args.seed + 9_999))
 
     if args.untrained:
         torch.manual_seed(args.seed)
@@ -46,7 +52,8 @@ def main():
         ckpt_learn = ckpt_maint = copy.deepcopy(model.state_dict())
         train_trajs = []
     else:
-        model, logs, ckpt_learn, ckpt_maint, train_trajs = train(cfg)
+        model, logs, ckpt_learn, ckpt_maint, train_trajs, final_delay = train(cfg)
+        eval_env.current_delay = final_delay   # eval at the delay reached during training
         torch.save(ckpt_learn, os.path.join(outdir, "ckpt_learning.pt"))
         torch.save(ckpt_maint, os.path.join(outdir, "ckpt_maintenance.pt"))
 
@@ -68,8 +75,7 @@ def main():
     with open(os.path.join(outdir, "results.json"), "w") as f:
         json.dump(results, f, indent=2, default=float)
 
-    # ---- trajectories for the visualizer (separate, compact file) ----
-    from environment import maze_layout
+    # ---- trajectories for the visualizer ----
     model.load_state_dict(ckpt_maint)
     eval_trajs = A.eval_trajectories(model, eval_env, cfg, cfg.traj_eval_trials,
                                      greedy=not args.untrained)

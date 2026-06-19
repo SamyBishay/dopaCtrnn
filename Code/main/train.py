@@ -13,7 +13,7 @@ import torch
 import torch.nn.functional as F
 from torch.distributions import Categorical
 
-from environment import TMazeDNMTP
+from environment import TMazeFreeNav
 from model import DualSystemModel
 from analysis import evaluate, _t
 
@@ -31,28 +31,26 @@ def _train_episode(model, env, cfg, opt_gd, opt_hab, da_lambda, record=False):
     model.reset_state()
     env.reset()
     pi_gd, pi_h, ws, das, vals, acts, task_rs, int_rs = ([] for _ in range(8))
-    rec_pos, rec_w = [], []
+    rec_pos, rec_w, rec_phase = [], [], []
     done = False
     while not done:
-        allo, ego = env.obs()
-        out = model.step(_t(allo, dev), _t(ego, dev))
-        if env.agent_controlled:
-            a = Categorical(logits=out["combined"]).sample()
-            pi_gd.append(out["pi_gd"]); pi_h.append(out["pi_h"]); ws.append(out["w_gd"])
-            das.append(out["da_request"]); vals.append(out["value"]); acts.append(a)
-            if record:
-                rec_pos.append(list(env.pos)); rec_w.append(round(float(out["w_gd"].detach()), 3))
-            a_env = int(a)
-        else:
-            a_env = 0
-        tr, ir, done, info = env.step(a_env)
-        if info["agent_step"]:
-            task_rs.append(tr); int_rs.append(ir)
+        obs = env.obs()
+        out = model.step(_t(obs, dev), _t(obs, dev))
+        a = Categorical(logits=out["combined"]).sample()
+        pi_gd.append(out["pi_gd"]); pi_h.append(out["pi_h"]); ws.append(out["w_gd"])
+        das.append(out["da_request"]); vals.append(out["value"]); acts.append(a)
+        if record:
+            rec_pos.append(list(env.pos))
+            rec_w.append(round(float(out["w_gd"].detach()), 3))
+            rec_phase.append(env.phase)
+        tr, ir, done, info = env.step(int(a))
+        task_rs.append(tr); int_rs.append(ir)
+
     traj = None
     if record:
         rec_pos.append(list(env.pos))
-        traj = {"pos": rec_pos, "w": rec_w, "correct": bool(info["correct"]),
-                "blocked": env.blocked}
+        traj = {"pos": rec_pos, "w": rec_w, "phase": rec_phase,
+                "correct": bool(info["correct"]), "blocked": env.blocked}
     if not acts:
         return 0.0, 0.0, traj
     n = min(len(acts), len(task_rs))
@@ -71,17 +69,13 @@ def _train_episode(model, env, cfg, opt_gd, opt_hab, da_lambda, record=False):
     logps = torch.stack(logps); ents = torch.stack(ents); das_t = torch.stack(das)
     if cfg.da_request_training != "a2c_coupled":
         raise NotImplementedError(
-            "OPEN #1: DA-request training '%s' is not implemented. The 'local_pe' option "
-            "requires you to specify the local prediction-error term; that design choice "
-            "is deliberately left to you (see config.py)." % cfg.da_request_training)
+            "OPEN #1: DA-request training '%s' is not implemented." % cfg.da_request_training)
     gd_loss = (-(adv.detach() * logps).sum()
                + cfg.value_coef * ((returns - values) ** 2).sum()
                - cfg.entropy_beta * ents.sum()
                + da_lambda * (das_t ** 2).sum())
-    # Expression-gated plasticity: when the GD system is not expressed (w_GD low) it
-    # is not updated, so its learned solution is preserved (dormant but reactivable),
-    # consistent with W_eff = f(DA)*W. This is what lets silencing the habitual system
-    # reactivate goal-directed control (H5) instead of finding an erased policy.
+    # Expression-gated plasticity: when GD is not expressed (w_GD low) it is not
+    # updated, preserving the dormant policy for reactivation (H5).
     expr_gate = torch.stack(ws).mean().detach().clamp(0.0, 1.0)
     gd_loss = expr_gate * gd_loss
 
@@ -105,15 +99,16 @@ def _train_episode(model, env, cfg, opt_gd, opt_hab, da_lambda, record=False):
 def train(cfg, verbose=True):
     torch.manual_seed(cfg.seed)
     rng = np.random.default_rng(cfg.seed)
-    env = TMazeDNMTP(cfg, rng)
+    env = TMazeFreeNav(cfg, rng)
     model = DualSystemModel(cfg).to(cfg.device)
     opt_gd = torch.optim.Adam(model.gd_params(), lr=cfg.lr_gd)
     opt_hab = torch.optim.Adam(model.hab_params(), lr=cfg.lr_hab)
 
     logs = {k: [] for k in ("episode", "combined_acc", "hab_solo_acc",
-                            "gd_solo_acc", "w_gd", "da_recruit")}
+                            "gd_solo_acc", "w_gd", "da_recruit", "delay")}
     ckpt_learn = ckpt_maint = first_state = None
     train_trajs = []
+    delay_advance_count = 0   # consecutive evals above threshold
 
     for ep in range(1, cfg.episodes + 1):
         if ep <= cfg.da_warmup:
@@ -127,16 +122,19 @@ def train(cfg, verbose=True):
         if rec and traj is not None:
             traj["episode"] = ep
             train_trajs.append(traj)
+
         if ep % cfg.eval_every == 0 or ep == cfg.episodes:
             comb = evaluate(model, env, cfg, cfg.eval_trials)
-            hab = evaluate(model, env, cfg, cfg.eval_trials, force_w=0.0)
-            gd = evaluate(model, env, cfg, cfg.eval_trials, force_w=1.0)
+            hab  = evaluate(model, env, cfg, cfg.eval_trials, force_w=0.0)
+            gd   = evaluate(model, env, cfg, cfg.eval_trials, force_w=1.0)
             logs["episode"].append(ep)
             logs["combined_acc"].append(comb["acc"])
             logs["hab_solo_acc"].append(hab["acc"])
             logs["gd_solo_acc"].append(gd["acc"])
             logs["w_gd"].append(comb["w_mean"])
             logs["da_recruit"].append(comb["da_mean"])
+            logs["delay"].append(env.current_delay)
+
             if first_state is None:
                 first_state = copy.deepcopy(model.state_dict())
             if (ckpt_learn is None and comb["acc"] >= cfg.learn_combined_min
@@ -144,13 +142,26 @@ def train(cfg, verbose=True):
                 ckpt_learn = copy.deepcopy(model.state_dict())
             if hab["acc"] >= cfg.maint_solo_min and comb["acc"] >= cfg.maint_solo_min:
                 ckpt_maint = copy.deepcopy(model.state_dict())
+
+            # curriculum: advance delay when both combined and habitual are accurate
+            if (comb["acc"] >= cfg.delay_advance_acc
+                    and hab["acc"] >= cfg.delay_advance_acc):
+                delay_advance_count += 1
+            else:
+                delay_advance_count = 0
+            if delay_advance_count >= cfg.delay_advance_evals:
+                env.advance_delay()
+                delay_advance_count = 0
+                if verbose:
+                    print(f"  -> delay → {env.current_delay}", flush=True)
+
             if verbose:
                 print(f"ep {ep:5d} | comb {comb['acc']:.2f} habSolo {hab['acc']:.2f} "
                       f"gdSolo {gd['acc']:.2f} | w_GD {comb['w_mean']:.2f} "
-                      f"DA {comb['da_mean']:.2f}", flush=True)
+                      f"DA {comb['da_mean']:.2f} delay {env.current_delay}", flush=True)
 
     if ckpt_maint is None:
-        ckpt_maint = copy.deepcopy(model.state_dict())   # fallback: final weights
+        ckpt_maint = copy.deepcopy(model.state_dict())
     if ckpt_learn is None:
-        ckpt_learn = first_state                          # fallback: earliest snapshot
-    return model, logs, ckpt_learn, ckpt_maint, train_trajs
+        ckpt_learn = first_state
+    return model, logs, ckpt_learn, ckpt_maint, train_trajs, env.current_delay

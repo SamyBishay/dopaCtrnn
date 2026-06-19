@@ -3,7 +3,7 @@ import numpy as np
 import torch
 from torch.distributions import Categorical
 
-from environment import TMazeDNMTP
+from environment import TMazeFreeNav
 
 
 def _t(x, dev):
@@ -13,7 +13,7 @@ def _t(x, dev):
 def rollout(model, env, cfg, force_w=None, lesion=None, mot=1.0,
             greedy=True, collect_delay=False, record=False):
     """One trial on frozen weights. Returns correctness + DA/gate traces (+delay states,
-    +trajectory if record=True). Trajectory = test-phase cell path with per-step w_GD."""
+    +trajectory if record=True)."""
     model.reset_state()
     env.reset()
     da, w, delay_states = [], [], []
@@ -23,25 +23,22 @@ def rollout(model, env, cfg, force_w=None, lesion=None, mot=1.0,
         done = False
         info = {"correct": False}
         while not done:
-            allo, ego = env.obs()
-            out = model.step(_t(allo, dev), _t(ego, dev),
+            obs = env.obs()
+            out = model.step(_t(obs, dev), _t(obs, dev),
                              force_w=force_w, lesion=lesion, mot=mot)
             if collect_delay and env.phase == "delay":
                 delay_states.append(model.h_hab.clone().cpu().numpy())
-            if env.agent_controlled:
-                logits = out["combined"]
-                a = int(torch.argmax(logits)) if greedy else int(Categorical(logits=logits).sample())
-                da.append(float(out["da_request"]))
-                w.append(float(out["w_gd"]))
-                if record:
-                    rec_pos.append(list(env.pos))
-                    rec_w.append(round(float(out["w_gd"]), 3))
-                    rec_a.append(a)
-            else:
-                a = 0
+            logits = out["combined"]
+            a = int(torch.argmax(logits)) if greedy else int(Categorical(logits=logits).sample())
+            da.append(float(out["da_request"]))
+            w.append(float(out["w_gd"]))
+            if record:
+                rec_pos.append(list(env.pos))
+                rec_w.append(round(float(out["w_gd"]), 3))
+                rec_a.append(a)
             _, _, done, info = env.step(a)
     if record:
-        rec_pos.append(list(env.pos))   # final position
+        rec_pos.append(list(env.pos))
     traj = ({"pos": rec_pos, "w": rec_w, "a": rec_a,
              "correct": bool(info["correct"]), "blocked": env.blocked} if record else None)
     last_delay = delay_states[-1] if delay_states else None
@@ -52,7 +49,6 @@ def rollout(model, env, cfg, force_w=None, lesion=None, mot=1.0,
 
 
 def eval_trajectories(model, env, cfg, n, greedy=True, **kw):
-    """Replay n trials and return their recorded trajectories (compact)."""
     out = []
     for _ in range(n):
         r = rollout(model, env, cfg, greedy=greedy, record=True, **kw)
@@ -81,13 +77,10 @@ def h1_learning(model, env, cfg):
 
 # --------------------------------------------------------------- H2
 def h2_handoff(logs):
-    """Quantify the lock between habitual-solo competence and the w_GD drop."""
     ep = np.array(logs["episode"]); hab = np.array(logs["hab_solo_acc"])
-    w = np.array(logs["w_gd"]); comb = np.array(logs["combined_acc"])
-    # habitual-competence onset: first eval where hab-solo crosses 0.8
+    w  = np.array(logs["w_gd"]);   comb = np.array(logs["combined_acc"])
     cross = np.where(hab >= 0.8)[0]
     hab_onset = int(ep[cross[0]]) if len(cross) else None
-    # w_GD drop onset: first eval where w_GD < 50% of its running peak
     peak = np.maximum.accumulate(w)
     drop = np.where(w < 0.5 * peak)[0]
     w_onset = int(ep[drop[0]]) if len(drop) else None
@@ -101,12 +94,11 @@ def h2_handoff(logs):
 
 # --------------------------------------------------------------- H3
 def h3_devaluation(model, state_learn, state_maint, env, cfg):
-    """mot=1 vs mot~0 at a learning- and a maintenance-phase checkpoint."""
     out = {}
     for name, state in [("learning", state_learn), ("maintenance", state_maint)]:
         model.load_state_dict(state)
         before = evaluate(model, env, cfg, cfg.eval_trials, mot=1.0)["acc"]
-        after = evaluate(model, env, cfg, cfg.eval_trials, mot=0.0)["acc"]
+        after  = evaluate(model, env, cfg, cfg.eval_trials, mot=0.0)["acc"]
         out[name] = {"before": before, "after": after, "drop": before - after}
     out["dissociation_pass"] = (out["learning"]["drop"] > 0.15
                                 and out["maintenance"]["drop"] < 0.10)
@@ -124,16 +116,13 @@ def h4_lesions(model, state_learn, state_maint, env, cfg):
     return out
 
 
-# --------------------------------------------------------------- H5 (falsification)
+# --------------------------------------------------------------- H5
 def h5_reactivation(model, state_maint, env, cfg):
-    """Silence habitual in maintenance: does GD's DA-request RISE and devaluation-
-    sensitivity RETURN? If DA-request does not rise, the handoff was a schedule."""
     model.load_state_dict(state_maint)
-    intact = evaluate(model, env, cfg, cfg.eval_trials)
+    intact   = evaluate(model, env, cfg, cfg.eval_trials)
     silenced = evaluate(model, env, cfg, cfg.eval_trials, lesion="hab")
-    # devaluation-sensitivity with habitual silenced
     sil_before = silenced["acc"]
-    sil_after = evaluate(model, env, cfg, cfg.eval_trials, lesion="hab", mot=0.0)["acc"]
+    sil_after  = evaluate(model, env, cfg, cfg.eval_trials, lesion="hab", mot=0.0)["acc"]
     da_rise = silenced["da_mean"] - intact["da_mean"]
     return {"da_request_intact": intact["da_mean"],
             "da_request_hab_silenced": silenced["da_mean"],
@@ -156,7 +145,6 @@ def participation_ratio(X):
 
 
 def h6_attractor(model, state_maint, env, cfg):
-    """PCA + linear decoder of arm identity from delay-period habitual activity."""
     from sklearn.decomposition import PCA
     from sklearn.linear_model import LogisticRegression
     from sklearn.model_selection import cross_val_score
@@ -167,6 +155,10 @@ def h6_attractor(model, state_maint, env, cfg):
         if r["delay_state"] is not None:
             X.append(r["delay_state"])
             y.append(0 if r["blocked"] == "L" else 1)
+    if len(X) < 10:
+        return {"pca_coords": [], "labels": [], "decoder_acc": 0.0, "decoder_sd": 0.0,
+                "participation_ratio": 0.0, "pass": False,
+                "note": f"Too few delay states collected ({len(X)}); model may not reach delay phase."}
     X = np.array(X); y = np.array(y)
     pca = PCA(n_components=2).fit(X)
     coords = pca.transform(X)
@@ -180,13 +172,18 @@ def h6_attractor(model, state_maint, env, cfg):
 
 # --------------------------------------------------------------- optional fixed points
 def fixed_points(model, env, cfg, n_seeds=30, steps=400, lr=0.05):
-    """Light Sussillo & Barak (2013)-style finder on the habitual net under the
-    (cueless) delay input. Reports speed ||dh/dt|| and slowest Jacobian eigenvalue."""
+    """Sussillo & Barak (2013)-style fixed-point finder on the habitual net
+    under a cueless delay observation (signal fully decayed)."""
+    # Navigate to delay phase, then zero the phase signal (fully-decayed)
     env.reset()
-    while env.phase != "delay":
-        env.step(0)
-    _, ego = env.obs()
-    x = _t(ego, cfg.device)
+    env.step(0); env.step(0)   # START→STEM→JUNCTION (enters sample)
+    if env.open_side == "R":
+        env.step(2); env.step(2)
+    else:
+        env.step(3); env.step(3)   # enters delay
+    env._phase_signal[:] = 0.0    # cueless (fully-decayed delay)
+    obs = env.obs()
+    x = _t(obs, cfg.device)
     hab = model.hab
     res = []
     for _ in range(n_seeds):
