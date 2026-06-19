@@ -12,9 +12,8 @@ def _t(x, dev):
 
 def rollout(model, env, cfg, force_w=None, lesion=None, mot=1.0,
             greedy=True, collect_delay=False, record=False):
-    """One trial on frozen weights. Returns correctness + DA/gate traces (+delay states,
-    +trajectory if record=True)."""
-    model.reset_state()
+    """One trial on frozen weights (B=1). Returns correctness + DA/gate traces."""
+    model.reset_state(1)   # hidden states: [1, n_gd], [1, n_hab]
     env.reset()
     da, w, delay_states = [], [], []
     rec_pos, rec_w, rec_a = [], [], []
@@ -23,18 +22,17 @@ def rollout(model, env, cfg, force_w=None, lesion=None, mot=1.0,
         done = False
         info = {"correct": False}
         while not done:
-            obs = env.obs()
-            out = model.step(_t(obs, dev), _t(obs, dev),
-                             force_w=force_w, lesion=lesion, mot=mot)
+            obs_t = _t(env.obs(), dev).unsqueeze(0)     # [1, obs_dim]
+            out   = model.step(obs_t, obs_t, force_w=force_w, lesion=lesion, mot=mot)
             if collect_delay and env.phase == "delay":
-                delay_states.append(model.h_hab.clone().cpu().numpy())
-            logits = out["combined"]
+                delay_states.append(model.h_hab[0].clone().cpu().numpy())  # [n_hab]
+            logits = out["combined"][0]                  # [n_actions]
             a = int(torch.argmax(logits)) if greedy else int(Categorical(logits=logits).sample())
-            da.append(float(out["da_request"]))
-            w.append(float(out["w_gd"]))
+            da.append(float(out["da_request"][0]))
+            w.append(float(out["w_gd"][0]))
             if record:
                 rec_pos.append(list(env.pos))
-                rec_w.append(round(float(out["w_gd"]), 3))
+                rec_w.append(round(float(out["w_gd"][0]), 3))
                 rec_a.append(a)
             _, _, done, info = env.step(a)
     if record:
@@ -183,24 +181,24 @@ def fixed_points(model, env, cfg, n_seeds=30, steps=400, lr=0.05):
         env.step(3); env.step(3)   # enters delay
     env._phase_signal[:] = 0.0    # cueless (fully-decayed delay)
     obs = env.obs()
-    x = _t(obs, cfg.device)
+    x = _t(obs, cfg.device)   # [obs_dim]
     hab = model.hab
     res = []
+    # dh dynamics use single-vector form (equivalent to batched for 1-D h)
+    def _dh(hh):
+        r = torch.tanh(hh)
+        return -hh + r @ hab.W.T + x @ hab.W_in.T + hab.b
     for _ in range(n_seeds):
         h = torch.randn(cfg.n_hab, device=cfg.device) * 0.5
         h.requires_grad_(True)
         opt = torch.optim.Adam([h], lr=lr)
         for _ in range(steps):
             opt.zero_grad()
-            dh = -h + hab.W @ torch.tanh(h) + hab.W_in @ x + hab.b
-            loss = 0.5 * (dh ** 2).sum()
-            loss.backward()
-            opt.step()
+            loss = 0.5 * (_dh(h) ** 2).sum()
+            loss.backward(); opt.step()
         with torch.no_grad():
-            dh = -h + hab.W @ torch.tanh(h) + hab.W_in @ x + hab.b
-            speed = float((dh ** 2).sum().sqrt())
-        J = torch.autograd.functional.jacobian(
-            lambda hh: -hh + hab.W @ torch.tanh(hh) + hab.W_in @ x + hab.b, h.detach())
+            speed = float((_dh(h) ** 2).sum().sqrt())
+        J = torch.autograd.functional.jacobian(_dh, h.detach())
         eig = torch.linalg.eigvals(J).real
         res.append({"speed": speed, "max_real_eig": float(eig.max()),
                     "stable": bool((eig < 0).all())})

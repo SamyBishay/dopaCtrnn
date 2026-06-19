@@ -67,6 +67,8 @@ class Config:
     #       specifying that error is the open design decision.
     da_request_training: str = "a2c_coupled"
 
+    batch_size: int = 32   # parallel environments per training iteration (vectorised BLAS)
+
     seed: int    = 0
     device: str  = "cpu"
 

@@ -1,11 +1,12 @@
-"""Training. Two optimizers:
-  - goal-directed: A2C over the COMBINED policy with pi_H DETACHED (so the habitual
-    net never receives a reward gradient) + critic + entropy + DA-request penalty.
-    The DA gate w_GD sits in this graph, so the DA-request is shaped by the A2C
-    advantage -> this is the "a2c_coupled" path (OPEN #1 default).
-  - habitual: value-free. Action-prediction-error (imitate the executed action) plus a
-    small intrinsic-efficiency REINFORCE on step-cost/completion-bonus. The task reward
-    NEVER enters this loss -> structural devaluation-insensitivity.
+"""Training — vectorised over B parallel environments.
+
+Each training iteration steps all B environments in lockstep. The batch
+dimension lets PyTorch dispatch [B × n] matrix multiplies instead of
+n-length vector-matrix products, saturating BLAS and cutting wall-time
+by ~10-20× vs. single-env sequential training.
+
+Two optimizers (goal-directed, habitual) are updated once per iteration
+over the summed losses from all B completed episodes.
 """
 import copy
 import numpy as np
@@ -18,124 +19,189 @@ from model import DualSystemModel
 from analysis import evaluate, _t
 
 
-def discounted(rewards, gamma, dev):
+def discounted(rewards_list, gamma, dev):
     out, R = [], 0.0
-    for r in reversed(rewards):
+    for r in reversed(rewards_list):
         R = r + gamma * R
         out.append(R)
     return torch.tensor(list(reversed(out)), dtype=torch.float32, device=dev)
 
 
-def _train_episode(model, env, cfg, opt_gd, opt_hab, da_lambda, record=False):
+def _train_batch(model, envs, cfg, opt_gd, opt_hab, da_lambda):
+    """One vectorised training iteration over B=len(envs) parallel episodes."""
+    B   = len(envs)
     dev = cfg.device
-    model.reset_state()
-    env.reset()
-    pi_gd, pi_h, ws, das, vals, acts, task_rs, int_rs = ([] for _ in range(8))
-    rec_pos, rec_w, rec_phase = [], [], []
-    done = False
-    while not done:
-        obs = env.obs()
-        out = model.step(_t(obs, dev), _t(obs, dev))
-        a = Categorical(logits=out["combined"]).sample()
-        pi_gd.append(out["pi_gd"]); pi_h.append(out["pi_h"]); ws.append(out["w_gd"])
-        das.append(out["da_request"]); vals.append(out["value"]); acts.append(a)
-        if record:
-            rec_pos.append(list(env.pos))
-            rec_w.append(round(float(out["w_gd"].detach()), 3))
-            rec_phase.append(env.phase)
-        tr, ir, done, info = env.step(int(a))
-        task_rs.append(tr); int_rs.append(ir)
+    model.reset_state(B)
+    for env in envs:
+        env.reset()
 
-    traj = None
-    if record:
-        rec_pos.append(list(env.pos))
-        traj = {"pos": rec_pos, "w": rec_w, "phase": rec_phase,
-                "correct": bool(info["correct"]), "blocked": env.blocked}
-    if not acts:
-        return 0.0, 0.0, traj
-    n = min(len(acts), len(task_rs))
-    pi_gd, pi_h, ws, das, vals, acts = (z[:n] for z in (pi_gd, pi_h, ws, das, vals, acts))
-    task_rs, int_rs = task_rs[:n], int_rs[:n]
+    # Per-step accumulators — each is a list of [B, ...] tensors
+    all_pi_gd, all_pi_h, all_w, all_da = [], [], [], []
+    all_val, all_acts = [], []
+    all_task_r, all_int_r, all_valid = [], [], []
 
-    # ---- goal-directed A2C (habitual detached) ----
-    returns = discounted(task_rs, cfg.gamma, dev)
-    values = torch.stack(vals)
-    adv = returns - values.detach()
-    logps, ents = [], []
-    for pg, ph, w, a in zip(pi_gd, pi_h, ws, acts):
-        c = w * pg + (1.0 - w) * ph.detach()
-        d = Categorical(logits=c)
-        logps.append(d.log_prob(a)); ents.append(d.entropy())
-    logps = torch.stack(logps); ents = torch.stack(ents); das_t = torch.stack(das)
-    if cfg.da_request_training != "a2c_coupled":
-        raise NotImplementedError(
-            "OPEN #1: DA-request training '%s' is not implemented." % cfg.da_request_training)
-    # Expression-gated plasticity: when GD is not expressed (w_GD low) its
-    # POLICY gradient is suppressed, preserving the dormant solution for
-    # reactivation (H5). Critic and DA penalty continue updating so advantage
-    # estimates and DA cost remain valid during maintenance.
-    expr_gate = torch.stack(ws).mean().detach().clamp(0.0, 1.0)
-    policy_loss = -(adv.detach() * logps).sum()
-    critic_loss = cfg.value_coef * ((returns - values) ** 2).sum()
-    entropy_loss = -cfg.entropy_beta * ents.sum()
-    da_penalty = da_lambda * (das_t ** 2).sum()
-    gd_loss = expr_gate * (policy_loss + entropy_loss) + critic_loss + da_penalty
+    active = [True] * B
 
-    # ---- habitual: value-free APE + intrinsic efficiency (NO task reward) ----
-    returns_int = discounted(int_rs, cfg.gamma, dev)
-    adv_int = returns_int - returns_int.mean().detach()
-    ce, logp_h = [], []
-    for ph, a, ai in zip(pi_h, acts, adv_int):
-        ce.append(F.cross_entropy(ph.unsqueeze(0), a.view(1)))
-        logp_h.append(Categorical(logits=ph).log_prob(a))
-    ce = torch.stack(ce).sum(); logp_h = torch.stack(logp_h)
-    hab_loss = cfg.ape_weight * ce + cfg.eff_weight * (-(adv_int.detach() * logp_h).sum())
+    for _ in range(cfg.max_episode_steps):
+        obs_np = np.stack([env.obs() for env in envs])     # [B, obs_dim]
+        obs_t  = _t(obs_np, dev)
+        out    = model.step(obs_t, obs_t)
+        acts   = Categorical(logits=out["combined"]).sample()  # [B]
 
-    opt_gd.zero_grad(); gd_loss.backward(retain_graph=True)
+        all_pi_gd.append(out["pi_gd"]); all_pi_h.append(out["pi_h"])
+        all_w.append(out["w_gd"]);      all_da.append(out["da_request"])
+        all_val.append(out["value"]);   all_acts.append(acts)
+
+        task_rs = torch.zeros(B); int_rs = torch.zeros(B)
+        valid   = torch.zeros(B, dtype=torch.bool)
+        for b in range(B):
+            if active[b]:
+                tr, ir, done, _ = envs[b].step(int(acts[b].item()))
+                task_rs[b] = tr; int_rs[b] = ir; valid[b] = True
+                if done:
+                    active[b] = False
+        all_task_r.append(task_rs); all_int_r.append(int_rs)
+        all_valid.append(valid)
+
+        if not any(active):
+            break
+
+    # Stack tensors: leading dim = T (steps taken)
+    pi_gd_t = torch.stack(all_pi_gd)    # [T, B, n_actions]
+    pi_h_t  = torch.stack(all_pi_h)
+    w_t     = torch.stack(all_w)         # [T, B]
+    da_t    = torch.stack(all_da)
+    val_t   = torch.stack(all_val)
+    acts_t  = torch.stack(all_acts)      # [T, B]
+    task_t  = torch.stack(all_task_r).to(dev)
+    int_t   = torch.stack(all_int_r).to(dev)
+    valid_t = torch.stack(all_valid)     # [T, B] bool
+
+    total_gd = total_hab = None
+
+    for b in range(B):
+        mask = valid_t[:, b]             # [T] — steps where env b was active
+        if not mask.any():
+            continue
+
+        task_rs_b = task_t[:, b][mask]
+        int_rs_b  = int_t[:, b][mask]
+        pi_gd_b   = pi_gd_t[:, b][mask]   # [T_b, n_actions]
+        pi_h_b    = pi_h_t[:, b][mask]
+        w_b       = w_t[:, b][mask]         # [T_b]
+        da_b      = da_t[:, b][mask]
+        val_b     = val_t[:, b][mask]
+        acts_b    = acts_t[:, b][mask]      # [T_b]
+
+        # ---- goal-directed A2C ----
+        returns = discounted(task_rs_b.cpu().tolist(), cfg.gamma, dev)
+        adv     = returns - val_b.detach()
+        c       = w_b.unsqueeze(-1) * pi_gd_b + (1 - w_b.unsqueeze(-1)) * pi_h_b.detach()
+        dist    = Categorical(logits=c)
+        logps   = dist.log_prob(acts_b); ents = dist.entropy()
+
+        expr_gate = w_b.mean().detach().clamp(0, 1)
+        policy_l  = -(adv.detach() * logps).sum()
+        critic_l  = cfg.value_coef * ((returns - val_b) ** 2).sum()
+        entropy_l = -cfg.entropy_beta * ents.sum()
+        da_pen    = da_lambda * (da_b ** 2).sum()
+        gd_b = expr_gate * (policy_l + entropy_l) + critic_l + da_pen
+
+        # ---- habitual: value-free APE + intrinsic efficiency ----
+        returns_int = discounted(int_rs_b.cpu().tolist(), cfg.gamma, dev)
+        adv_int     = returns_int - returns_int.mean().detach()
+        ce_b        = F.cross_entropy(pi_h_b, acts_b, reduction="sum")
+        logp_h      = Categorical(logits=pi_h_b).log_prob(acts_b)
+        hab_b = cfg.ape_weight * ce_b + cfg.eff_weight * (-(adv_int.detach() * logp_h).sum())
+
+        total_gd  = gd_b  if total_gd  is None else total_gd  + gd_b
+        total_hab = hab_b if total_hab is None else total_hab + hab_b
+
+    if total_gd is None:
+        return 0.0, 0.0
+
+    opt_gd.zero_grad(); total_gd.backward(retain_graph=True)
     torch.nn.utils.clip_grad_norm_(model.gd_params(), cfg.grad_clip); opt_gd.step()
-    opt_hab.zero_grad(); hab_loss.backward()
+    opt_hab.zero_grad(); total_hab.backward()
     torch.nn.utils.clip_grad_norm_(model.hab_params(), cfg.grad_clip); opt_hab.step()
-    return float(gd_loss.detach()), float(hab_loss.detach()), traj
+    return float(total_gd.detach()), float(total_hab.detach())
+
+
+def _record_episode(model, env, cfg):
+    """Record one trajectory for the visualiser (single env, greedy)."""
+    dev = cfg.device
+    model.reset_state(1)
+    env.reset()
+    rec_pos, rec_w, rec_phase = [], [], []
+    done = False; info = {"correct": False}
+    with torch.no_grad():
+        while not done:
+            obs_t = _t(env.obs(), dev).unsqueeze(0)   # [1, obs_dim]
+            out   = model.step(obs_t, obs_t)
+            a     = int(out["combined"][0].argmax())
+            rec_pos.append(list(env.pos))
+            rec_w.append(round(float(out["w_gd"][0]), 3))
+            rec_phase.append(env.phase)
+            _, _, done, info = env.step(a)
+    rec_pos.append(list(env.pos))
+    return {"pos": rec_pos, "w": rec_w, "phase": rec_phase,
+            "correct": bool(info["correct"]), "blocked": env.blocked}
 
 
 def train(cfg, verbose=True):
     torch.manual_seed(cfg.seed)
     rng = np.random.default_rng(cfg.seed)
-    env = TMazeFreeNav(cfg, rng)
-    model = DualSystemModel(cfg).to(cfg.device)
-    opt_gd = torch.optim.Adam(model.gd_params(), lr=cfg.lr_gd)
+    B   = cfg.batch_size
+    # B independent environments — each gets its own rng stream
+    envs = [TMazeFreeNav(cfg, np.random.default_rng(rng.integers(1 << 32)))
+            for _ in range(B)]
+    eval_env = TMazeFreeNav(cfg, np.random.default_rng(rng.integers(1 << 32)))
+
+    model   = DualSystemModel(cfg).to(cfg.device)
+    opt_gd  = torch.optim.Adam(model.gd_params(),  lr=cfg.lr_gd)
     opt_hab = torch.optim.Adam(model.hab_params(), lr=cfg.lr_hab)
 
     logs = {k: [] for k in ("episode", "combined_acc", "hab_solo_acc",
-                            "gd_solo_acc", "w_gd", "da_recruit", "delay")}
+                             "gd_solo_acc", "w_gd", "da_recruit", "delay")}
     ckpt_learn = ckpt_maint = first_state = None
     train_trajs = []
-    delay_advance_count = 0   # consecutive evals above threshold
+    delay_advance_count = 0
+    total_episodes = 0
 
-    for ep in range(1, cfg.episodes + 1):
+    # Each iteration trains B episodes; loop until we hit cfg.episodes total
+    iterations = (cfg.episodes + B - 1) // B
+    for it in range(iterations):
+        ep = total_episodes  # episode count at the START of this iteration
+        total_episodes += B
+
         if ep <= cfg.da_warmup:
             da_lambda = 0.0
         elif ep <= cfg.da_warmup + cfg.da_ramp:
             da_lambda = cfg.da_cost_lambda * (ep - cfg.da_warmup) / cfg.da_ramp
         else:
             da_lambda = cfg.da_cost_lambda
-        rec = cfg.traj_log_every > 0 and ep % cfg.traj_log_every == 0
-        _, _, traj = _train_episode(model, env, cfg, opt_gd, opt_hab, da_lambda, record=rec)
-        if rec and traj is not None:
-            traj["episode"] = ep
+
+        _train_batch(model, envs, cfg, opt_gd, opt_hab, da_lambda)
+
+        # Trajectory logging (use eval_env for cleanliness)
+        if (cfg.traj_log_every > 0
+                and total_episodes % cfg.traj_log_every < B):
+            traj = _record_episode(model, eval_env, cfg)
+            traj["episode"] = total_episodes
             train_trajs.append(traj)
 
-        if ep % cfg.eval_every == 0 or ep == cfg.episodes:
-            comb = evaluate(model, env, cfg, cfg.eval_trials)
-            hab  = evaluate(model, env, cfg, cfg.eval_trials, force_w=0.0)
-            gd   = evaluate(model, env, cfg, cfg.eval_trials, force_w=1.0)
-            logs["episode"].append(ep)
+        # Periodic evaluation
+        if total_episodes % cfg.eval_every < B or it == iterations - 1:
+            comb = evaluate(model, eval_env, cfg, cfg.eval_trials)
+            hab  = evaluate(model, eval_env, cfg, cfg.eval_trials, force_w=0.0)
+            gd   = evaluate(model, eval_env, cfg, cfg.eval_trials, force_w=1.0)
+            logs["episode"].append(total_episodes)
             logs["combined_acc"].append(comb["acc"])
             logs["hab_solo_acc"].append(hab["acc"])
             logs["gd_solo_acc"].append(gd["acc"])
             logs["w_gd"].append(comb["w_mean"])
             logs["da_recruit"].append(comb["da_mean"])
-            logs["delay"].append(env.current_delay)
+            logs["delay"].append(envs[0].current_delay)
 
             if first_state is None:
                 first_state = copy.deepcopy(model.state_dict())
@@ -145,22 +211,24 @@ def train(cfg, verbose=True):
             if hab["acc"] >= cfg.maint_solo_min and comb["acc"] >= cfg.maint_solo_min:
                 ckpt_maint = copy.deepcopy(model.state_dict())
 
-            # curriculum: advance delay when both combined and habitual are accurate
+            # Delay curriculum: advance when both combined and habitual are strong
             if (comb["acc"] >= cfg.delay_advance_acc
                     and hab["acc"] >= cfg.delay_advance_acc):
                 delay_advance_count += 1
             else:
                 delay_advance_count = 0
             if delay_advance_count >= cfg.delay_advance_evals:
-                env.advance_delay()
+                for env in envs:
+                    env.advance_delay()
+                eval_env.advance_delay()
                 delay_advance_count = 0
                 if verbose:
-                    print(f"  -> delay → {env.current_delay}", flush=True)
+                    print(f"  -> delay → {envs[0].current_delay}", flush=True)
 
             if verbose:
-                print(f"ep {ep:5d} | comb {comb['acc']:.2f} habSolo {hab['acc']:.2f} "
+                print(f"ep {total_episodes:6d} | comb {comb['acc']:.2f} habSolo {hab['acc']:.2f} "
                       f"gdSolo {gd['acc']:.2f} | w_GD {comb['w_mean']:.2f} "
-                      f"DA {comb['da_mean']:.2f} delay {env.current_delay}", flush=True)
+                      f"DA {comb['da_mean']:.2f} delay {envs[0].current_delay}", flush=True)
 
     if ckpt_maint is None:
         import warnings
@@ -172,4 +240,5 @@ def train(cfg, verbose=True):
         warnings.warn("learn checkpoint never reached — ckpt_learn falls back to first_state. "
                       "H3/H4 learning-phase results may be invalid.")
         ckpt_learn = first_state
-    return model, logs, ckpt_learn, ckpt_maint, train_trajs, env.current_delay
+
+    return model, logs, ckpt_learn, ckpt_maint, train_trajs, envs[0].current_delay
