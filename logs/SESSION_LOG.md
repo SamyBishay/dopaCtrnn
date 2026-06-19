@@ -23,3 +23,21 @@ Commit: 956a7da
 **GOALS.md created** — half-page north star with H1–H7 verified results table, remaining deliverable checklist, and key open question on project framing.
 
 **SESSION_LOG.md created** with append-only protocol added to CLAUDE.md §7.
+
+## 2026-06-19 — notes: Cools (2011, 2019); current/ synthesis files
+Commit: 5c71189
+
+- `Papers/cools_inverted-ushaped_2011.md` and `Papers/cools_chemistry_2019.md` created from PDFs with full project-note structure
+- `Papers/PAPERS_INDEX.md` updated with Cools entries
+- `current/implications-summary.md` — synthesis of "Implications for our model" across all 13 paper notes
+- `current/memoire-gaps.md` — opus gap analysis of introduction + method drafts against the agreed outline
+- `current/traditionalvsnewdopa.md` — opus synthesis: classical RPE view vs multi-dimensional modern dopamine picture, citing vault papers
+
+## 2026-06-19 — fix: SSH auth via new ed25519 key; push backlog to Codeberg
+Commit: 5c71189 (no new commit this session)
+
+- Old id_rsa had an unknown passphrase; ksshaskpass was silently failing
+- Generated new ~/.ssh/id_codeberg (ed25519, no passphrase)
+- Added SSH config block: Host codeberg.org → IdentityFile ~/.ssh/id_codeberg
+- Key added to Codeberg as "thinkpad"; connection verified
+- Pushed all pending commits (956a7da, 5c71189, 5aee5b7) to origin main
