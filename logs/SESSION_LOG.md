@@ -63,3 +63,18 @@ Commit: –
   (1) sample phase is scripted (agent not in control)
   (2) arm identity persists as a non-decaying one-hot in the allocentric observation
   (3) delay only 10 steps, no curriculum
+
+## 2026-06-20 — env: replace scripted DNMTP with free-navigation TUNL-style environment
+Commit: 5ed718d
+
+- Fixed broken wikilinks in current/ (cools_2011→cools_inverted-ushaped_2011, cools_2019→cools_chemistry_2019, hamid2021a→hamid_wave-like_2021, ProjectOverview→full filename)
+- Deleted empty root stubs (cools_2019.md, Schad2024.md, Tran2021.md) and duplicate Projects/dopaCTRNN/cools_inverted-ushaped_2011.md
+- Pushed all vault changes to Codeberg (commits 3c8b109, d0ee410, 5ed718d)
+- Replaced scripted TMazeDNMTP with free-navigation TMazeFreeNav: agent navigates all phases, 6D obs with decaying phase signal, 5 actions (WAIT added), curriculum delay (delay_start=1→delay_max=15)
+- Updated model.py: GDNet and HabNet W_in now cfg.obs_dim (6) — same obs to both nets
+- Updated config.py: n_gd=n_hab=256, obs_dim=6, n_actions=5, new delay/curriculum params
+- Updated train.py: unified obs stream, curriculum delay advancement, 6-tuple return; expression gate now gates ONLY policy+entropy (not critic/DA penalty) after Opus review
+- Updated analysis.py: unified obs stream, fixed_points navigation updated, H6 guard for empty delay states
+- Updated run_experiment.py: eval_env delay sync, H7 evaluates at delay_max, --n-gd/--n-hab CLI args
+- Spawned Opus code review; applied 3 fixes: expression gate scope, H7 delay, checkpoint warnings
+- Launched 256-neuron 8000-episode test run (/tmp/dopa_256/), still in progress
