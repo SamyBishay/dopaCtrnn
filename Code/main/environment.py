@@ -121,6 +121,7 @@ class TMazeFreeNav:
         # --- phase transitions ---
         if self.phase == "pre_sample" and self.pos == JUNCTION:
             self.phase = "sample"
+            task_r += self.cfg.junction_bonus   # dense shaping: reward reaching junction
             # set phase signal: L_open → sig_L, R_open → sig_R
             self._phase_signal[:] = 0.0
             if self.open_side == "L":
@@ -132,6 +133,7 @@ class TMazeFreeNav:
             sample_end = L_END if self.open_side == "L" else R_END
             if self.pos == sample_end:
                 self.phase = "delay"
+                task_r += self.cfg.arm_end_bonus   # dense shaping: reward reaching arm end
                 self.delay_idx = 0
 
         elif self.phase == "delay":

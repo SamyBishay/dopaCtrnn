@@ -7,14 +7,16 @@ from dataclasses import dataclass, asdict
 @dataclass
 class Config:
     # ---- task (environment.py) ----
-    delay_start: int   = 1            # initial delay length (curriculum grows to delay_max)
+    delay_start: int   = 5            # delay steps before choice; gives agent time to leave arm end
     delay_max: int     = 15           # max delay steps (working memory challenge)
     delay_advance_acc: float = 0.75   # accuracy threshold (combined) to lengthen delay
     delay_advance_evals: int = 3      # consecutive evals above threshold → advance
     max_episode_steps: int = 80       # hard timeout per trial (all phases)
     test_reward: float = 1.0          # reward for correct (non-match) choice
     step_cost: float   = 0.02         # per movement step (all phases)
-    wait_cost: float   = 0.01         # per WAIT action (action=4)
+    wait_cost: float   = 0.02         # per WAIT action — same as step_cost so WAIT isn't cheaper
+    junction_bonus: float = 0.30      # task_r shaping: pre_sample→sample (reaching junction)
+    arm_end_bonus: float  = 0.20      # task_r shaping: sample→delay (reaching arm end)
     completion_bonus: float = 0.10    # intrinsic, reaching ANY arm end (value-free)
     n_actions: int     = 5            # 0=N 1=S 2=E 3=W 4=WAIT
     obs_dim: int       = 6            # flat observation: [x, y, 0, sig_L, sig_R, sig_choice]
@@ -32,15 +34,15 @@ class Config:
     wgd_bias: float    = -2.0         # init so w_GD → low when DA → 0
 
     # ---- training (train.py) ----
-    episodes: int   = 8000
+    episodes: int   = 32000           # total episodes; with B=128 → 250 gradient steps
     gamma: float    = 0.95
     lr_gd: float    = 3e-4
     lr_hab: float   = 3e-4
-    entropy_beta: float = 0.03
+    entropy_beta: float = 0.05        # higher than default to prevent early policy collapse
     value_coef: float   = 0.5
     da_cost_lambda: float = 0.02      # penalty on da_request² → minimise its own request
-    da_warmup: int  = 2000            # episodes with NO DA penalty (free acquisition)
-    da_ramp: int    = 2000            # episodes to linearly ramp penalty to full
+    da_warmup: int  = 8000            # episodes with NO DA penalty (scaled ×4 for B=128)
+    da_ramp: int    = 8000            # episodes to linearly ramp penalty to full
     grad_clip: float = 1.0
     ape_weight: float  = 1.0          # habitual APE (action prediction error) weight
     eff_weight: float  = 0.10         # habitual intrinsic-efficiency weight (NOT task reward)
