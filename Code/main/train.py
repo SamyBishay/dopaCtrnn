@@ -16,7 +16,7 @@ from torch.distributions import Categorical
 
 from environment import TMazeFreeNav
 from model import DualSystemModel
-from analysis import evaluate, _t
+from analysis import evaluate, evaluate_vec, _t
 
 
 def discounted(rewards_list, gamma, dev):
@@ -192,9 +192,9 @@ def train(cfg, verbose=True):
 
         # Periodic evaluation
         if total_episodes % cfg.eval_every < B or it == iterations - 1:
-            comb = evaluate(model, eval_env, cfg, cfg.eval_trials)
-            hab  = evaluate(model, eval_env, cfg, cfg.eval_trials, force_w=0.0)
-            gd   = evaluate(model, eval_env, cfg, cfg.eval_trials, force_w=1.0)
+            comb = evaluate_vec(model, eval_env, cfg, cfg.eval_trials)
+            hab  = evaluate_vec(model, eval_env, cfg, cfg.eval_trials, force_w=0.0)
+            gd   = evaluate_vec(model, eval_env, cfg, cfg.eval_trials, force_w=1.0)
             logs["episode"].append(total_episodes)
             logs["combined_acc"].append(comb["acc"])
             logs["hab_solo_acc"].append(hab["acc"])

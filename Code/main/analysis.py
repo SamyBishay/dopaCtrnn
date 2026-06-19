@@ -62,6 +62,59 @@ def evaluate(model, env, cfg, n, **kw):
             "w_mean": float(np.mean([r["w_mean"] for r in res]))}
 
 
+def evaluate_vec(model, env, cfg, n, force_w=None, lesion=None, mot=1.0):
+    """Vectorised evaluation: B=batch_size parallel envs, ceil(n/B) batches.
+    Replaces evaluate() in the training loop — ~10x faster (BLAS-3 forward pass)."""
+    B = min(cfg.batch_size, n)
+    rng = np.random.default_rng(0)
+    _envs = [TMazeFreeNav(cfg, np.random.default_rng(rng.integers(1 << 32)))
+             for _ in range(B)]
+    for e in _envs:
+        e.current_delay = env.current_delay
+
+    all_correct, all_da, all_w = [], [], []
+    dev = cfg.device
+
+    with torch.no_grad():
+        while len(all_correct) < n:
+            b = min(B, n - len(all_correct))
+            model.reset_state(b)
+            for e in _envs[:b]:
+                e.reset()
+            active = [True] * b
+            das = [[] for _ in range(b)]
+            ws  = [[] for _ in range(b)]
+            correct = [False] * b
+
+            for _ in range(cfg.max_episode_steps):
+                obs_np = np.stack([_envs[i].obs() for i in range(b)])
+                obs_t  = _t(obs_np, dev)
+                out    = model.step(obs_t, obs_t, force_w=force_w,
+                                    lesion=lesion, mot=mot)
+                acts   = out["combined"].argmax(-1)   # greedy [b]
+
+                for i in range(b):
+                    if active[i]:
+                        das[i].append(float(out["da_request"][i]))
+                        ws[i].append(float(out["w_gd"][i]))
+                        _, _, done, info = _envs[i].step(int(acts[i]))
+                        if done:
+                            active[i] = False
+                            correct[i] = bool(info["correct"])
+
+                if not any(active):
+                    break
+
+            all_correct.extend(correct[:b])
+            all_da.extend([float(np.mean(d)) if d else 0.0 for d in das[:b]])
+            all_w.extend([float(np.mean(w)) if w else 0.0 for w in ws[:b]])
+
+    k = sum(all_correct[:n])
+    return {"acc": k / n, "k": k, "n": n,
+            "da_mean": float(np.mean(all_da[:n])),
+            "w_mean": float(np.mean(all_w[:n]))}
+
+
 # --------------------------------------------------------------- H1
 def h1_learning(model, env, cfg):
     from scipy.stats import binomtest
