@@ -127,16 +127,13 @@ New paper:
 
 ## 7. Session log
 
-At the end of every session, append a dated entry to `SESSION_LOG.md`:
+At the end of every session, append a dated entry using `printf >> logs/SESSION_LOG.md` — never read the file first:
 
-```
-## YYYY-MM-DD — <short commit message or "no commit">
-Commit: <hash> (or "–" if nothing committed)
-
-<exactly the bullet-point summary you output to the user at session end>
+```bash
+printf '\n## YYYY-MM-DD — <commit message or "no commit">\nCommit: <hash or –>\n\n<bullet summary>\n' >> logs/SESSION_LOG.md
 ```
 
-Do this even for short sessions. The log is append-only — never edit past entries. If you committed during the session, include the hash so the log entry is traceable to an exact repo state.
+Do this even for short sessions. The log is append-only — never read or edit past entries.
 
 ---
 
