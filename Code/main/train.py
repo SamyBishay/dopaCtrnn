@@ -41,7 +41,7 @@ def _train_episode(model, env, cfg, opt_gd, opt_hab, da_lambda, record=False):
             pi_gd.append(out["pi_gd"]); pi_h.append(out["pi_h"]); ws.append(out["w_gd"])
             das.append(out["da_request"]); vals.append(out["value"]); acts.append(a)
             if record:
-                rec_pos.append(list(env.pos)); rec_w.append(round(float(out["w_gd"]), 3))
+                rec_pos.append(list(env.pos)); rec_w.append(round(float(out["w_gd"].detach()), 3))
             a_env = int(a)
         else:
             a_env = 0

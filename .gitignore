@@ -9,6 +9,11 @@ Papers/My Library/files/
 # Large result artifacts and model checkpoints
 Code/main/results/
 
+# Python venv and bytecode
+Code/venv/
+Code/main/__pycache__/
+**/__pycache__/
+
 # OS
 .DS_Store
 Thumbs.db

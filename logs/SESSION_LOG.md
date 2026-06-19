@@ -41,3 +41,16 @@ Commit: 5c71189 (no new commit this session)
 - Added SSH config block: Host codeberg.org → IdentityFile ~/.ssh/id_codeberg
 - Key added to Codeberg as "thinkpad"; connection verified
 - Pushed all pending commits (956a7da, 5c71189, 5aee5b7) to origin main
+
+## 2026-06-19 — fix: detach w_GD tensor before float conversion in train.py
+Commit: –
+
+- Created Python 3.12.13 venv at Code/venv/ and installed requirements
+- Ran full 5000-episode experiment (seed 0): all H1–H6 pass
+  - H1 acc=1.000 (p=9.3e-302), H2 hab_onset=ep1600/wgd_drop=ep2300
+  - H3 deval drop: learning=0.51, maintenance=0.00
+  - H4 lesions: at maintenance both GD and hab solo carry task independently
+  - H5 DA-rise=+0.001 (marginal but PASS; behavioural reactivation strong, deval_sensitivity=1.0)
+  - H6 decoder_acc=1.000, PR=1.0
+- Fixed bug in train.py:44 — missing .detach() on w_GD tensor before float()
+- Added Code/venv/, __pycache__/ to .gitignore
