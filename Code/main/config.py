@@ -67,7 +67,9 @@ class Config:
     #       specifying that error is the open design decision.
     da_request_training: str = "a2c_coupled"
 
-    batch_size: int = 32   # parallel environments per training iteration (vectorised BLAS)
+    batch_size: int = 128  # parallel environments per training iteration (vectorised BLAS)
+                           # 128 amortises Python/env overhead over a large [B x n] matmul:
+                           # ~1.7x ep/s vs 32 on an 8-physical-core CPU (BLAS-3 bound).
 
     seed: int    = 0
     device: str  = "cpu"

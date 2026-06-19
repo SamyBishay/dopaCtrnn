@@ -9,10 +9,21 @@ Two optimizers (goal-directed, habitual) are updated once per iteration
 over the summed losses from all B completed episodes.
 """
 import copy
+import os
 import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.distributions import Categorical
+
+# Pin BLAS to physical-core count (see run_experiment.py for rationale).
+# Idempotent: safe even when run_experiment.py has already set it.
+def _physical_cores():
+    n = os.environ.get("DOPA_NUM_THREADS")
+    if n:
+        return max(1, int(n))
+    logical = os.cpu_count() or 1
+    return max(1, logical // 2) if logical > 1 and logical % 2 == 0 else logical
+torch.set_num_threads(_physical_cores())
 
 from environment import TMazeFreeNav
 from model import DualSystemModel

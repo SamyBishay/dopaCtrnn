@@ -12,6 +12,23 @@ import os
 import numpy as np
 import torch
 
+# Pin BLAS to the physical core count. This CPU is BLAS-3 bound; using more
+# threads than physical cores (i.e. spilling onto SMT siblings) thrashes and
+# REDUCES throughput. os.cpu_count() reports logical cores, so halve it when
+# SMT is active. Set DOPA_NUM_THREADS to override.
+def _physical_cores():
+    n = os.environ.get("DOPA_NUM_THREADS")
+    if n:
+        return max(1, int(n))
+    try:
+        import multiprocessing as _mp
+        logical = _mp.cpu_count()
+    except Exception:
+        logical = os.cpu_count() or 1
+    # AMD/Intel SMT is 2-way; assume half are physical when even and > 1.
+    return max(1, logical // 2) if logical > 1 and logical % 2 == 0 else logical
+torch.set_num_threads(_physical_cores())
+
 from config import Config
 from environment import TMazeFreeNav, maze_layout
 from model import DualSystemModel
