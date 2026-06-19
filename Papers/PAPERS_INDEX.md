@@ -62,3 +62,7 @@
 **Smith & Graybiel (2013)** — Task-bracketing patterns in DLS + infralimbic cortex emerge as dual operator of habit crystallization. `[habit, DLS, mPFC]`
 
 **Doll et al. (2016)** — Genetic dissociation: COMT (PFC DA) predicts model-based, DARPP-32 (striatal DA) predicts model-free learning. `[dopamine, D1/D2, dual-system, RL]`
+
+**Cools & D'Esposito (2011)** — Inverted-U relationship between dopamine and working memory/cognitive control; too-low or too-high DA impairs performance; D1 vs D2 receptor balance is key. `[dopamine, D1/D2, working-memory, mPFC, inverted-U]` → [[cools_inverted-ushaped_2011]]
+
+**Cools (2019)** — Review: dopamine as a multi-functional neuromodulator shaping cognitive flexibility, working memory, and motivation across prefrontal and striatal circuits. `[dopamine, D1/D2, mPFC, striatum, cognitive-control]` → [[cools_chemistry_2019]]
