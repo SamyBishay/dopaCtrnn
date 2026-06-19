@@ -78,3 +78,11 @@ Commit: 5ed718d
 - Updated run_experiment.py: eval_env delay sync, H7 evaluates at delay_max, --n-gd/--n-hab CLI args
 - Spawned Opus code review; applied 3 fixes: expression gate scope, H7 delay, checkpoint warnings
 - Launched 256-neuron 8000-episode test run (/tmp/dopa_256/), still in progress
+
+## 2026-06-20 — perf: vectorise evaluation
+Commit: 7a6ffd4
+
+- Root cause of 8% CPU: sequential evaluate() ran 200 B=1 rollouts (BLAS-2) every 3 training iterations — 20x eval overhead
+- Added evaluate_vec(): runs ceil(n/B) batches of B=32 parallel envs (BLAS-3), 11.4x faster (7.1s → 0.62s per checkpoint)
+- Result: 735% CPU (7+ cores, fans now active) vs 148% before
+- 256-neuron run launched at /tmp/dopa_256v3 (PID 182275)
