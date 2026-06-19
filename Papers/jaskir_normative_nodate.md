@@ -1,0 +1,42 @@
+---
+citekey: jaskir_normative_nodate
+type: paper-note
+status: read
+verify: pass
+topics: [dopamine, D1/D2, opponency, RL, striatum, credit-assignment, dual-system, RPE, habit]
+pdf: "My Library/files/255/Jaskir and Frank - On the normative advantages of dopamine and striatal opponency for learning and choice.pdf"
+full-text: "[[Jaskir On the normative advantages of dopamine and striatal opponency for learning and choice]]"
+---
+
+# jaskir_normative_nodate
+
+> Jaskir & Frank — Proposes OpAL*, a computational model showing that opponent D1/D2 striatal pathways with nonlinear Hebbian plasticity, dynamically modulated by dopamine as a function of environmental richness, confer normative advantages in sparse-reward reinforcement learning.
+
+## What the paper does
+OpAL* is a neural-network model of basal ganglia circuitry in which two opponent striatal pathways (D1 for gains, D2 for losses) learn separately through three-factor Hebbian rules, and a meta-critic evaluates environmental richness to modulate striatal dopamine levels online. The model is tested on multi-armed bandit tasks with varying reward densities and action space sizes. OpAL* outperforms Q-learning, UCB, and non-Hebbian variants across all conditions; advantages scale monotonically with task complexity and are largest in sparse-reward settings. The model also captures empirical choice patterns (risk preferences, devaluation effects, L-DOPA effects) across human and animal studies.
+
+## Key claims relevant to this project
+- **Opponency + nonlinearity is necessary, not sufficient:** Opponent D1/D2 pathways alone do not remediate performance divergence between rich and lean environments; the Hebbian nonlinearity—which makes D1 and D2 specialize in different reward-probability ranges—is the load-bearing component [Results § "Advantages in lean environment..."].
+- **Dynamic dopamine modulation as efficient coding:** Scaling dopamine as a function of learned environmental richness amplifies the pathway specialized for the current context (D1 for high-reward discrimination in rich environments, D2 for low-reward discrimination in sparse ones), akin to an efficient coding strategy [Results § "Robust advantages of adaptively modulated dopamine states"].
+- **Dopamine is a fast, multiplicative gain, not a learning signal:** Dopamine in OpAL* modulates the *contribution* of already-learned weight structures to action selection; learning happens through local Hebbian rules independent of dopamine state [Mechanism § "Opponency and Hebbian nonlinearity..."].
+- **Three-factor learning (reward × pre × post nonlinearity) mirrors real striatal plasticity:** The model relies on outcome-modulated, spike-timing-dependent Hebbian plasticity known empirically in striatum, not gradient-based backprop [Methods, Discussion].
+- **Environmental statistics are learned and used online:** The meta-critic that drives DA modulation evaluates task richness continuously, not as a fixed, externally-supplied parameter [Introduction].
+
+## Mechanism / model details
+OpAL* has two opponent actor networks (D1 and D2) with weights G and N respectively. Each pathway learns via a three-factor Hebbian rule: ΔW ∝ r(t) · pre(t) · post(t), where post(t) = f_nonlin(post_rate). The nonlinearity f_nonlin creates convexity in learned weights: D1 weights saturate on high-reward options, N weights saturate on low-reward options. A meta-critic v_meta integrates reward history to estimate environmental richness ρ; dopamine is then set as DA(t) = DA_base · (1 + β·ρ), creating a multiplicative gate on pathway contributions: action selection becomes softmax(τ^{−1} · [DA·G + (1−DA)·N]). The model is tested on k-armed bandits with learn-then-test phases over 1000+ trials; performance is measured as cumulative reward and action-gap discrimination.
+
+## Implications for our model
+This paper directly supports **Stage 1–4 of the complexity roadmap** and indirectly constrains Stage 5:
+
+- **Stage 1 (single network baseline):** OpAL* validates that nonlinear plasticity in opponent pathways can arise and be useful even without task complexity. Our single-network stage should establish working-memory attractor as a control, before introducing opponency.
+- **Stage 3–4 (split observations + value-free habitual rule):** OpAL* shows that D1/D2 specialization arises naturally from differential outcome histories (high vs. low reward), not from external architectural asymmetry. Our allocentric/egocentric split (Section 2.5) will do similar work at the *observation level*; OpAL* suggests we should track whether D1/D2 divergence follows naturally from the learned outcome statistics rather than being imposed.
+- **Stage 5 (emergent handoff via DA modulation):** OpAL*'s mechanism is fundamentally *not* the dopaCTRNN's mechanism. OpAL* uses dopamine as a **pathway-weighting multiplier** (DA ∝ [richness]), whereas the dopaCTRNN proposes `W_eff = f(DA) · W` (dopamine as **expression gain on intact weights**) *plus* a goal-directed **DA-request neuron** that minimizes its own request. The two are compatible at the level of principle (dopamine as fast gain, not learning), but OpAL*'s automatic scaling to environmental richness is *not* the same as the dopaCTRNN's cost-minimization-driven request. OpAL* is a more global, symmetric mechanism; the dopaCTRNN's request neuron is an intentional cost-driven handoff. We should benchmark against OpAL*-style environmental richness detection to see whether a learned DA-request is necessary or whether a simpler richness heuristic suffices (this is currently left open in Section 2.3 of the project overview).
+- **Stage 6–7 (D1/D2 pharmacology, effective rank):** OpAL* does not address phasic vs. tonic dopamine (it uses a single DA scalar), so it cannot constrain our D1/D2 affinity mechanism directly. However, the paper's validation that opponent nonlinearity is the load-bearing ingredient suggests we should measure whether our Stage 6 D1/D2 manipulations produce observable changes in attractor geometry—if they do not, we may have imported pharmacological detail that is unnecessary for the mechanism to work (a question OpAL* leaves unresolved for its own model, noted in the Discussion).
+
+## Open questions / caveats
+- **Mechanism mismatch on DA modulation:** OpAL*'s dopamine modulation is **symmetric** (richer environment → higher DA, sparser → lower DA) and **automatic** (driven by a meta-critic learning richness). The dopaCTRNN proposes a **goal-directed-specific request neuron** (asymmetric across systems, cost-driven, not richness-driven). OpAL* does not test whether automatic richness-based scaling is sufficient or whether task-specific goal-directed request is necessary. Our ablation at Stage 5 (silencing the habitual system and observing whether the goal-directed DA-request re-engages) will address this.
+- **Three-factor Hebbian rule implementation:** OpAL* assumes the third factor is a reward signal r(t). In the dopaCTRNN, the habitual system's learning rule is APE (action prediction error), not standard RPE-modulated Hebbian. If the goal-directed system *also* uses APE rather than RPE, we diverge from OpAL*'s assumptions about how learning is gated. The project overview (Section 2.3) leaves open whether the goal-directed DA-request neuron is trained by supervision or local error; this choice will affect whether our learning rule resembles OpAL*'s three-factor structure.
+- **Sparse reward vs. devaluation:** OpAL* tests performance in sparse-reward bandits where richness varies across trials/blocks. The dopaCTRNN's devaluation test (Villet's signature) is not about richness but about whether a learned policy is *insensitive to outcome value*. OpAL* does not directly model devaluation (reward outcome is available to both D1 and D2); it models only the statistics of reward availability. Our Stage 4 test (value-free rule producing devaluation-insensitivity) is thus addressing a different phenomenon than OpAL* examines, even though both involve D1/D2 opponency.
+- **Action space size vs. working memory:** OpAL* scales advantages with action space complexity (k-armed bandits up to ~10 arms). The dopaCTRNN's task is informationally simple (one bit of working memory) but requires sustained, context-dependent neural dynamics. OpAL*'s findings about large action spaces may not directly transfer to small action spaces with long temporal dependencies.
+
+[[Project overview a dopamine-mediated mechanism for the goal-directed-to-habitual handoff]] [[PAPERS_INDEX]]

@@ -1,0 +1,14 @@
+# Obsidian local state (machine-specific, noisy diffs)
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.obsidian/plugins/*/data.json
+
+# PDFs — large and potentially copyrighted; bib metadata is committed
+Papers/My Library/files/
+
+# Large result artifacts and model checkpoints
+Code/main/results/
+
+# OS
+.DS_Store
+Thumbs.db
