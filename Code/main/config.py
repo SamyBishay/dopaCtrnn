@@ -7,6 +7,10 @@ from dataclasses import dataclass, asdict
 @dataclass
 class Config:
     # ---- task (environment.py) ----
+    len_edge: int      = 7            # inner grid edge (odd, >=5); width = len_edge+2
+                                      # NOTE: len_edge=5 needs difficulty>=1 (else no stem)
+    difficulty: int    = 0            # 0=easy 1=medium 2=hard — sets stem length (height)
+    sig_val: float     = 0.25         # phase-signal amplitude (was 1/(COLS-1) at 5-wide)
     delay_start: int   = 5            # delay steps before choice; gives agent time to leave arm end
     delay_max: int     = 15           # max delay steps (working memory challenge)
     delay_advance_acc: float = 0.75   # accuracy threshold (combined) to lengthen delay
@@ -25,6 +29,9 @@ class Config:
     # ---- network sizes (model.py) ----
     n_gd: int    = 256                # goal-directed CTRNN units (D1/phasic + D2/tonic halves)
     n_hab: int   = 256                # habitual CTRNN units
+    hab_rank: int = 0                 # 0 = full-rank habitual W (default, original behaviour);
+                                      # >0 = low-rank W_rec = (m @ n.T)/n_hab, rank=hab_rank.
+                                      # Makes "habit is low-dimensional" structural. Try 2-8.
     dt: float    = 1.0
     tau_fast: float  = 2.0            # fast units (action/decision)
     tau_slow: float  = 25.0           # slow units (working memory)
@@ -37,6 +44,12 @@ class Config:
     # ---- training (train.py) ----
     episodes: int   = 32000           # total episodes; with B=128 → 250 gradient steps
     gamma: float    = 0.95
+    gae_lambda: float = 0.95          # GAE(λ) for goal-directed advantage. 1.0 → plain
+                                      # Monte-Carlo returns (original behaviour); <1 lowers
+                                      # advantage variance at the cost of a little bias.
+    ret_norm: bool  = True            # standardise GD returns by a running mean/std window
+                                      # before the policy/value loss (stabilises the critic).
+    ret_norm_window: int = 10000      # size of the rolling return-stat window
     lr_gd: float    = 3e-4
     lr_hab: float   = 3e-4
     entropy_beta: float = 0.05        # higher than default to prevent early policy collapse
@@ -47,6 +60,21 @@ class Config:
     grad_clip: float = 1.0
     ape_weight: float  = 1.0          # habitual APE (action prediction error) weight
     eff_weight: float  = 0.10         # habitual intrinsic-efficiency weight (NOT task reward)
+
+    # APE-decay: the analogue of the supervisor's CE-teacher fade. Your habitual
+    # net has no explicit teacher — it learns from action-prediction-error against
+    # the COMBINED policy. APE is therefore the closest thing to a teaching signal.
+    # When enabled, the APE weight decays once habitual-solo accuracy exceeds the
+    # combined accuracy by ape_decay_margin, so a habit that has surpassed the
+    # mixture is no longer dragged back toward it. OFF by default → original behaviour.
+    ape_decay: bool    = False
+    ape_decay_margin: float = 0.05    # hab_solo must exceed combined by this before decay
+    ape_decay_rate: float   = 2.0     # how fast the weight falls per unit of surplus
+    ape_min_scale: float    = 0.10    # floor: never fully remove APE
+
+    # ---- checkpoint / resume (train.py) ----
+    ckpt_every: int = 0               # 0 = off. >0 → write resumable state every N episodes.
+    ckpt_path: str  = ""              # file path for the resumable checkpoint (set by runner)
 
     # ---- evaluation / analysis ----
     eval_every: int     = 100

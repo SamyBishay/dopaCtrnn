@@ -30,34 +30,79 @@ from model import DualSystemModel
 from analysis import evaluate, evaluate_vec, _t
 
 
-def discounted(rewards_list, gamma, dev):
-    out, R = [], 0.0
-    for r in reversed(rewards_list):
-        R = r + gamma * R
-        out.append(R)
-    return torch.tensor(list(reversed(out)), dtype=torch.float32, device=dev)
+def discounted_batch(rewards, gamma, valid):
+    """Discounted returns over [T, B] without per-b Python loops.
+
+    rewards, valid: [T, B] (valid is float/bool mask of active steps).
+    Returns [T, B]. The valid mask resets the accumulator across the
+    (already right-padded) inactive tail of each column.
+    """
+    T = rewards.shape[0]
+    out = torch.zeros_like(rewards)
+    R = torch.zeros(rewards.shape[1], device=rewards.device)
+    vf = valid.float()
+    for t in range(T - 1, -1, -1):          # T iters over [B], not B×T
+        R = rewards[t] + gamma * R * vf[t]
+        out[t] = R
+    return out
 
 
-def _train_batch(model, envs, cfg, opt_gd, opt_hab, da_lambda):
-    """One vectorised training iteration over B=len(envs) parallel episodes."""
-    B   = len(envs)
+def gae_batch(rewards, values, gamma, lam, valid):
+    """Generalised Advantage Estimation over [T, B].
+
+    rewards, values, valid: [T, B]. Bootstrap value past the last active
+    step is zero (episodes run to a terminal state). Returns (adv, ret),
+    each [T, B], with ret = adv + values. lam=1.0 recovers Monte-Carlo.
+    """
+    T = rewards.shape[0]
+    vf = valid.float()
+    adv = torch.zeros_like(rewards)
+    gae = torch.zeros(rewards.shape[1], device=rewards.device)
+    next_val = torch.zeros(rewards.shape[1], device=rewards.device)
+    for t in range(T - 1, -1, -1):
+        delta = rewards[t] + gamma * next_val * vf[t] - values[t]
+        gae = delta + gamma * lam * gae * vf[t]
+        adv[t] = gae
+        next_val = values[t]
+    ret = adv + values
+    return adv, ret
+
+
+class RunningNorm:
+    """Rolling mean/std over a fixed window of scalar returns (for GD return
+    normalisation). Mirrors the supervisor's deque-based standardisation."""
+    def __init__(self, window):
+        from collections import deque
+        self.buf = deque(maxlen=window)
+
+    def update(self, vals):
+        self.buf.extend(vals)
+
+    def stats(self):
+        if len(self.buf) < 2:
+            return 0.0, 1.0
+        arr = np.fromiter(self.buf, dtype=np.float64)
+        return float(arr.mean()), max(float(arr.std()), 1.0)
+
+
+def _train_batch(model, venv, cfg, opt_gd, opt_hab, da_lambda,
+                 ret_norm=None, ape_scale=1.0):
+    """One vectorised training iteration over B parallel episodes (single venv)."""
+    B   = venv.B
     dev = cfg.device
     model.reset_state(B)
-    for env in envs:
-        env.reset()
+    venv.reset()
 
     # Per-step accumulators — each is a list of [B, ...] tensors
     all_pi_gd, all_pi_h, all_w, all_da = [], [], [], []
     all_val, all_acts = [], []
     all_task_r, all_int_r, all_valid = [], [], []
 
-    active = [True] * B
+    active = np.ones(B, dtype=bool)
 
     for _ in range(cfg.max_episode_steps):
-        obs_np     = np.stack([env.obs() for env in envs])      # [B, obs_dim]
-        obs_hab_np = np.stack([env.obs_hab() for env in envs])  # [B, obs_dim_hab]
-        obs_t      = _t(obs_np, dev)
-        obs_hab_t  = _t(obs_hab_np, dev)
+        obs_t      = _t(venv.obs(),     dev)      # [B, obs_dim]
+        obs_hab_t  = _t(venv.obs_hab(), dev)      # [B, obs_dim_hab]
         out        = model.step(obs_t, obs_hab_t)
         acts   = Categorical(logits=out["combined"]).sample()  # [B]
 
@@ -65,18 +110,15 @@ def _train_batch(model, envs, cfg, opt_gd, opt_hab, da_lambda):
         all_w.append(out["w_gd"]);      all_da.append(out["da_request"])
         all_val.append(out["value"]);   all_acts.append(acts)
 
-        task_rs = torch.zeros(B); int_rs = torch.zeros(B)
-        valid   = torch.zeros(B, dtype=torch.bool)
-        for b in range(B):
-            if active[b]:
-                tr, ir, done, _ = envs[b].step(int(acts[b].item()))
-                task_rs[b] = tr; int_rs[b] = ir; valid[b] = True
-                if done:
-                    active[b] = False
-        all_task_r.append(task_rs); all_int_r.append(int_rs)
-        all_valid.append(valid)
+        valid_np = active.copy()                  # steps where env was active
+        tr, ir, done, _ = venv.step(acts.cpu().numpy())
+        # rewards are zero for already-done envs by construction in venv.step
+        all_task_r.append(torch.from_numpy(tr.astype(np.float32)))
+        all_int_r.append(torch.from_numpy(ir.astype(np.float32)))
+        all_valid.append(torch.from_numpy(valid_np))
+        active &= ~done
 
-        if not any(active):
+        if not active.any():
             break
 
     # Stack tensors: leading dim = T (steps taken)
@@ -90,48 +132,57 @@ def _train_batch(model, envs, cfg, opt_gd, opt_hab, da_lambda):
     int_t   = torch.stack(all_int_r).to(dev)
     valid_t = torch.stack(all_valid)     # [T, B] bool
 
-    total_gd = total_hab = None
+    valid_f = valid_t.float()                            # [T, B]
+    total_valid = valid_f.sum().clamp_min(1.0)
 
-    for b in range(B):
-        mask = valid_t[:, b]             # [T] — steps where env b was active
-        if not mask.any():
-            continue
+    # ===== goal-directed A2C, fully vectorised over B =====
+    # GAE(λ) advantage and bootstrap-free returns on the per-step task reward.
+    adv, returns = gae_batch(task_t, val_t.detach(), cfg.gamma,
+                             cfg.gae_lambda, valid_t)       # [T, B], [T, B]
 
-        task_rs_b = task_t[:, b][mask]
-        int_rs_b  = int_t[:, b][mask]
-        pi_gd_b   = pi_gd_t[:, b][mask]   # [T_b, n_actions]
-        pi_h_b    = pi_h_t[:, b][mask]
-        w_b       = w_t[:, b][mask]         # [T_b]
-        da_b      = da_t[:, b][mask]
-        val_b     = val_t[:, b][mask]
-        acts_b    = acts_t[:, b][mask]      # [T_b]
+    # Return normalisation: standardise the *targets* with a rolling window.
+    if cfg.ret_norm and ret_norm is not None:
+        ret_vals = returns[valid_t].detach().cpu().numpy().tolist()
+        ret_norm.update(ret_vals)
+        r_mean, r_std = ret_norm.stats()
+        returns_n = (returns - r_mean) / r_std
+    else:
+        returns_n = returns
 
-        # ---- goal-directed A2C ----
-        returns = discounted(task_rs_b.cpu().tolist(), cfg.gamma, dev)
-        adv     = returns - val_b.detach()
-        c       = w_b.unsqueeze(-1) * pi_gd_b + (1 - w_b.unsqueeze(-1)) * pi_h_b.detach()
-        dist    = Categorical(logits=c)
-        logps   = dist.log_prob(acts_b); ents = dist.entropy()
+    # Advantage normalisation (masked mean/std over active steps only).
+    adv_masked = adv[valid_t].detach()
+    a_mean = adv_masked.mean() if adv_masked.numel() else adv.new_zeros(())
+    a_std  = adv_masked.std()  if adv_masked.numel() > 1 else adv.new_ones(())
+    adv_n  = (adv - a_mean) / (a_std + 1e-8)
 
-        expr_gate = w_b.mean().detach().clamp(0, 1)
-        policy_l  = -(adv.detach() * logps).sum()
-        critic_l  = cfg.value_coef * ((returns - val_b) ** 2).sum()
-        entropy_l = -cfg.entropy_beta * ents.sum()
-        da_pen    = da_lambda * (da_b ** 2).sum()
-        gd_b = expr_gate * (policy_l + entropy_l) + critic_l + da_pen
+    c     = w_t.unsqueeze(-1) * pi_gd_t + (1 - w_t.unsqueeze(-1)) * pi_h_t.detach()
+    dist  = Categorical(logits=c)
+    logps = dist.log_prob(acts_t)                          # [T, B]
+    ents  = dist.entropy()                                 # [T, B]
 
-        # ---- habitual: value-free APE + intrinsic efficiency ----
-        returns_int = discounted(int_rs_b.cpu().tolist(), cfg.gamma, dev)
-        adv_int     = returns_int - returns_int.mean().detach()
-        ce_b        = F.cross_entropy(pi_h_b, acts_b, reduction="sum")
-        logp_h      = Categorical(logits=pi_h_b).log_prob(acts_b)
-        hab_b = cfg.ape_weight * ce_b + cfg.eff_weight * (-(adv_int.detach() * logp_h).sum())
+    expr_gate = (w_t * valid_f).sum() / total_valid        # global masked gate
+    expr_gate = expr_gate.detach().clamp(0, 1)
 
-        total_gd  = gd_b  if total_gd  is None else total_gd  + gd_b
-        total_hab = hab_b if total_hab is None else total_hab + hab_b
+    policy_l  = -((adv_n.detach() * logps) * valid_f).sum()
+    critic_l  = cfg.value_coef * (((returns_n - val_t) ** 2) * valid_f).sum()
+    entropy_l = -cfg.entropy_beta * (ents * valid_f).sum()
+    da_pen    = da_lambda * ((da_t ** 2) * valid_f).sum()
+    total_gd  = expr_gate * (policy_l + entropy_l) + critic_l + da_pen
 
-    if total_gd is None:
-        return 0.0, 0.0
+    # ===== habitual: value-free APE + intrinsic efficiency, vectorised =====
+    returns_int = discounted_batch(int_t, cfg.gamma, valid_t)   # [T, B]
+    # Per-episode baseline: masked column mean of intrinsic returns.
+    denom    = valid_f.sum(0).clamp_min(1.0)                    # [B]
+    base_int = (returns_int * valid_f).sum(0) / denom           # [B]
+    adv_int  = returns_int - base_int.unsqueeze(0)              # [T, B]
+
+    A   = pi_h_t.shape[-1]
+    ce  = F.cross_entropy(pi_h_t.reshape(-1, A), acts_t.reshape(-1),
+                          reduction="none").reshape(acts_t.shape)   # [T, B]
+    ce_l    = (ce * valid_f).sum()
+    logp_h  = Categorical(logits=pi_h_t).log_prob(acts_t)          # [T, B]
+    eff_l   = -((adv_int.detach() * logp_h) * valid_f).sum()
+    total_hab = cfg.ape_weight * ape_scale * ce_l + cfg.eff_weight * eff_l
 
     opt_gd.zero_grad(); total_gd.backward(retain_graph=True)
     torch.nn.utils.clip_grad_norm_(model.gd_params(), cfg.grad_clip); opt_gd.step()
@@ -166,9 +217,9 @@ def train(cfg, verbose=True):
     torch.manual_seed(cfg.seed)
     rng = np.random.default_rng(cfg.seed)
     B   = cfg.batch_size
-    # B independent environments — each gets its own rng stream
-    envs = [TMazeFreeNav(cfg, np.random.default_rng(rng.integers(1 << 32)))
-            for _ in range(B)]
+    # One vectorised environment of width B (replaces B separate env objects).
+    from environment import TMazeVecEnv
+    venv = TMazeVecEnv(cfg, np.random.default_rng(rng.integers(1 << 32)), batch_size=B)
     eval_env = TMazeFreeNav(cfg, np.random.default_rng(rng.integers(1 << 32)))
 
     model   = DualSystemModel(cfg).to(cfg.device)
@@ -181,10 +232,37 @@ def train(cfg, verbose=True):
     train_trajs = []
     delay_advance_count = 0
     total_episodes = 0
+    start_it = 0
+    ret_norm = RunningNorm(cfg.ret_norm_window)
+    hab_solo_acc = 0.0   # last evaluated habitual-solo accuracy (for APE-decay)
+    comb_acc     = 0.0
+
+    # ---- resume from a mid-run checkpoint, if present ----
+    if cfg.ckpt_every > 0 and cfg.ckpt_path and os.path.exists(cfg.ckpt_path):
+        st = torch.load(cfg.ckpt_path, map_location=cfg.device, weights_only=False)
+        model.load_state_dict(st["model"])
+        opt_gd.load_state_dict(st["opt_gd"])
+        opt_hab.load_state_dict(st["opt_hab"])
+        torch.set_rng_state(st["torch_rng"])
+        rng = np.random.default_rng()
+        rng.bit_generator.state = st["np_rng"]
+        total_episodes      = st["total_episodes"]
+        start_it            = st["iteration"] + 1
+        logs                = st["logs"]
+        delay_advance_count = st["delay_advance_count"]
+        ret_norm.buf.extend(st.get("ret_norm_buf", []))
+        ckpt_learn  = st.get("ckpt_learn"); ckpt_maint = st.get("ckpt_maint")
+        first_state = st.get("first_state"); train_trajs = st.get("train_trajs", [])
+        cur_delay = st["current_delay"]
+        venv.current_delay = cur_delay
+        eval_env.current_delay = cur_delay
+        if verbose:
+            print(f"[resume] from {cfg.ckpt_path}: ep={total_episodes} "
+                  f"it={start_it} delay={cur_delay}", flush=True)
 
     # Each iteration trains B episodes; loop until we hit cfg.episodes total
     iterations = (cfg.episodes + B - 1) // B
-    for it in range(iterations):
+    for it in range(start_it, iterations):
         ep = total_episodes  # episode count at the START of this iteration
         total_episodes += B
 
@@ -195,7 +273,20 @@ def train(cfg, verbose=True):
         else:
             da_lambda = cfg.da_cost_lambda
 
-        _train_batch(model, envs, cfg, opt_gd, opt_hab, da_lambda)
+        # APE-decay (teacher-fade analogue): fade the action-prediction-error
+        # weight once the habitual solo policy has surpassed the combined policy.
+        if cfg.ape_decay:
+            surplus = hab_solo_acc - comb_acc - cfg.ape_decay_margin
+            if surplus > 0:
+                ape_scale = max(cfg.ape_min_scale,
+                                1.0 - cfg.ape_decay_rate * surplus)
+            else:
+                ape_scale = 1.0
+        else:
+            ape_scale = 1.0
+
+        _train_batch(model, venv, cfg, opt_gd, opt_hab, da_lambda,
+                     ret_norm=ret_norm, ape_scale=ape_scale)
 
         # Trajectory logging (use eval_env for cleanliness)
         if (cfg.traj_log_every > 0
@@ -209,13 +300,14 @@ def train(cfg, verbose=True):
             comb = evaluate_vec(model, eval_env, cfg, cfg.eval_trials)
             hab  = evaluate_vec(model, eval_env, cfg, cfg.eval_trials, force_w=0.0)
             gd   = evaluate_vec(model, eval_env, cfg, cfg.eval_trials, force_w=1.0)
+            comb_acc = comb["acc"]; hab_solo_acc = hab["acc"]   # for APE-decay
             logs["episode"].append(total_episodes)
             logs["combined_acc"].append(comb["acc"])
             logs["hab_solo_acc"].append(hab["acc"])
             logs["gd_solo_acc"].append(gd["acc"])
             logs["w_gd"].append(comb["w_mean"])
             logs["da_recruit"].append(comb["da_mean"])
-            logs["delay"].append(envs[0].current_delay)
+            logs["delay"].append(venv.current_delay)
 
             if first_state is None:
                 first_state = copy.deepcopy(model.state_dict())
@@ -232,17 +324,36 @@ def train(cfg, verbose=True):
             else:
                 delay_advance_count = 0
             if delay_advance_count >= cfg.delay_advance_evals:
-                for env in envs:
-                    env.advance_delay()
+                venv.advance_delay()
                 eval_env.advance_delay()
                 delay_advance_count = 0
                 if verbose:
-                    print(f"  -> delay → {envs[0].current_delay}", flush=True)
+                    print(f"  -> delay → {venv.current_delay}", flush=True)
 
             if verbose:
                 print(f"ep {total_episodes:6d} | comb {comb['acc']:.2f} habSolo {hab['acc']:.2f} "
                       f"gdSolo {gd['acc']:.2f} | w_GD {comb['w_mean']:.2f} "
-                      f"DA {comb['da_mean']:.2f} delay {envs[0].current_delay}", flush=True)
+                      f"DA {comb['da_mean']:.2f} delay {venv.current_delay}", flush=True)
+
+        # ---- resumable checkpoint (atomic write) ----
+        if cfg.ckpt_every > 0 and cfg.ckpt_path and total_episodes % cfg.ckpt_every < B:
+            state = {
+                "model": model.state_dict(),
+                "opt_gd": opt_gd.state_dict(), "opt_hab": opt_hab.state_dict(),
+                "torch_rng": torch.get_rng_state(),
+                "np_rng": rng.bit_generator.state,
+                "total_episodes": total_episodes, "iteration": it,
+                "logs": logs, "delay_advance_count": delay_advance_count,
+                "ret_norm_buf": list(ret_norm.buf),
+                "ckpt_learn": ckpt_learn, "ckpt_maint": ckpt_maint,
+                "first_state": first_state, "train_trajs": train_trajs,
+                "current_delay": venv.current_delay,
+            }
+            tmp = cfg.ckpt_path + ".tmp"
+            torch.save(state, tmp)
+            os.replace(tmp, cfg.ckpt_path)   # atomic: never leaves a half-written ckpt
+            if verbose:
+                print(f"  -> checkpoint @ ep {total_episodes} -> {cfg.ckpt_path}", flush=True)
 
     if ckpt_maint is None:
         import warnings
@@ -255,4 +366,4 @@ def train(cfg, verbose=True):
                       "H3/H4 learning-phase results may be invalid.")
         ckpt_learn = first_state
 
-    return model, logs, ckpt_learn, ckpt_maint, train_trajs, envs[0].current_delay
+    return model, logs, ckpt_learn, ckpt_maint, train_trajs, venv.current_delay

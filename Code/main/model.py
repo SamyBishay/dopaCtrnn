@@ -71,21 +71,50 @@ class GDNet(nn.Module):
 
 
 class HabNet(nn.Module):
+    """Habitual CTRNN, opponent Go/NoGo readouts (policy = Go - NoGo).
+
+    Recurrent weight can be full-rank (default) or low-rank. When
+    cfg.hab_rank > 0 the recurrent matrix is parameterised as
+    W = (m @ n.T) / n_hab  with m, n of shape [n_hab, rank]. This makes
+    the "habit is low-dimensional" claim structural rather than something
+    to be recovered post-hoc, and shrinks the parameter count of the
+    system we most expect to be simple. Set cfg.hab_rank = 0 (default) to
+    recover the original full-rank behaviour exactly.
+    """
     def __init__(self, cfg):
         super().__init__()
         n, a = cfg.n_hab, cfg.n_actions
         self.cfg   = cfg
+        self.rank  = int(getattr(cfg, "hab_rank", 0))
         self.W_in  = nn.Parameter(torch.randn(n, cfg.obs_dim_hab) * 0.1)
-        self.W     = nn.Parameter(torch.randn(n, n) * (0.9 / n ** 0.5))
+        if self.rank > 0:
+            # Low-rank: W_rec = (m @ n_lr.T) / n.  m,n init small (cf. supervisor).
+            self.m_lr = nn.Parameter(torch.randn(n, self.rank) * 0.1)
+            self.n_lr = nn.Parameter(torch.randn(n, self.rank) * 0.1)
+        else:
+            self.W = nn.Parameter(torch.randn(n, n) * (0.9 / n ** 0.5))
         self.b     = nn.Parameter(torch.zeros(n))
         self.tau_p = nn.Parameter(_mixed_tau_init(n, cfg))
         self.W_go  = nn.Parameter(torch.randn(a, n) * 0.1)
         self.W_nogo= nn.Parameter(torch.randn(a, n) * 0.1)
 
+    def _rec(self, r):
+        """Recurrent contribution r @ W.T for either parameterisation."""
+        if self.rank > 0:
+            # r @ W.T = r @ (m n^T / N).T = ((r @ m) @ n.T) / N
+            return (r @ self.m_lr) @ self.n_lr.T / self.cfg.n_hab
+        return r @ self.W.T
+
+    def rec_weight(self):
+        """Materialise the recurrent matrix (for analysis / fixed points)."""
+        if self.rank > 0:
+            return (self.m_lr @ self.n_lr.T) / self.cfg.n_hab
+        return self.W
+
     def step(self, x, h, lesion=False):
         """x: [B, obs_dim], h: [B, n]  →  pi [B, n_actions], h [B, n]."""
         r  = torch.tanh(h)
-        dh = -h + r @ self.W.T + x @ self.W_in.T + self.b
+        dh = -h + self._rec(r) + x @ self.W_in.T + self.b
         h  = h + (self.cfg.dt / _tau(self.tau_p)) * dh
         if lesion:
             h = torch.zeros_like(h)

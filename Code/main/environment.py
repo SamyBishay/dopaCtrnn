@@ -1,170 +1,342 @@
-"""DNMTP T-maze with free navigation — working memory task.
+"""DNMTP T-maze with free navigation — vectorised over B parallel envs.
 
-The agent navigates freely throughout all phases. Arm identity must be held
-in recurrent hidden state across the delay; it cannot be read from the
-observation during delay or choice.
+This is the vectorised rewrite. All environment state carries a leading
+batch dimension B; one `step(actions)` call advances every environment in
+C-level NumPy (boolean masks instead of per-env Python branches), removing
+the per-environment Python loop that was the single-process bottleneck.
 
-Layout (row, col):
+Parametric grid (matches the supervisor's difficulty system)
+─────────────────────────────────────────────────────────────
+The maze size is set by two knobs, exactly as in the reference code:
 
-    (0,0) (0,1) (0,2) (0,3) (0,4)   <- L-end .. JUNCTION .. R-end
-                (1,2)                <- stem
-                (2,2)  = START
+  len_edge (odd, >=5)  -> grid WIDTH:  w = len_edge + 2
+  difficulty (0/1/2)   -> grid HEIGHT: longer stem = harder
+        difficulty 0 (easy)  : h = (len_edge - 1)//2 + 1
+        difficulty 1 (medium): h = (len_edge + 1)//2 + 1
+        difficulty 2 (hard)  : h = (len_edge + 1)//2 + 2
 
-Phases (in order):
-  pre_sample  : navigate from START to JUNCTION (triggers sample display)
-  sample      : one arm blocked; navigate to the open arm end
-  delay       : free movement; phase signal decays ×0.1 per step
-  choice      : navigate to the non-match arm (correct) or wrong arm
+Difficulty controls the length of the central STEM the agent walks between
+START and the arm row. A taller grid = a longer stem = more steps (and more
+chance for the held memory to be disturbed) between sampling and choosing.
+The arms and the non-match rule are identical across difficulties; only the
+distance/time from sample to choice grows.
 
-Observation (6D):
-  [col/(COLS-1), row/(ROWS-1), 0,
-   sig_L, sig_R, sig_choice]
+Layout (row, col), arms on row 1 like the reference env:
 
-  sig_L/R = 0.25 during sample (indicating which arm was open), else 0
-  sig_choice = 0.25 during choice phase
-  All three decay ×0.1 per step during delay, so by step 5 they are < 3e-5.
+    row 0   : ###############        (wall border)
+    row 1   : # L .. JCT .. R #      <- arm row: L_END .. JUNCTION .. R_END
+    row 2   : #      |       #       <- stem
+     ...            |
+    row h-2 : #     S       #        <- START (bottom of stem)
+    row h-1 : ###############
+
+Phases (unchanged from the original):
+  pre_sample : navigate from START up the stem to JUNCTION (shows sample)
+  sample     : one arm blocked; navigate to the open arm end
+  delay      : free movement; phase signal decays x0.1 per step
+  choice     : navigate to the non-match arm (correct) or wrong arm
+
+Observation — goal-directed (obs, dim 6):
+  [col/(w-1), row/(h-1), 0, sig_L, sig_R, sig_choice]
+Observation — habitual (obs_hab, dim 4):
+  [0, sig_L, sig_R, sig_choice]   (no position; reactive system)
 
 Actions: 0=N  1=S  2=E  3=W  4=WAIT
 """
 import numpy as np
 
-ROWS, COLS = 3, 5
-START    = (2, 2)
-STEM     = (1, 2)
-JUNCTION = (0, 2)
-L_ARM1   = (0, 1)
-L_END    = (0, 0)
-R_ARM1   = (0, 3)
-R_END    = (0, 4)
-TOP      = [(0, c) for c in range(COLS)]
-PASSABLE_ALL = set(TOP) | {STEM, START}
+PRE_SAMPLE, SAMPLE, DELAY, CHOICE = 0, 1, 2, 3
+_PHASE_NAME = {PRE_SAMPLE: "pre_sample", SAMPLE: "sample",
+               DELAY: "delay", CHOICE: "choice"}
 
-DELTAS = {0: (-1, 0), 1: (1, 0), 2: (0, 1), 3: (0, -1), 4: (0, 0)}  # 4=WAIT
+_DR = np.array([-1, 1, 0, 0, 0])
+_DC = np.array([0, 0, 1, -1, 0])
 
-OBS_DIM = 6
-_SIG_VAL = 1.0 / (COLS - 1)   # 0.25 — phase signal amplitude
+OBS_DIM     = 6
+OBS_DIM_HAB = 4
 
 
-def maze_layout():
-    return {"rows": ROWS, "cols": COLS,
-            "passable": [list(c) for c in sorted(PASSABLE_ALL)],
-            "start": list(START), "junction": list(JUNCTION),
-            "l_end": list(L_END), "r_end": list(R_END)}
+def grid_dims(len_edge, difficulty):
+    """Return (h, w) for a given len_edge / difficulty — the supervisor's rule.
+
+    Raises if the configuration yields a degenerate grid with no stem: START
+    sits at row h-2 and the arm row is row 1, so the stem length is h-3. A
+    stem length < 1 means START is on (or above) the arm row — there is no
+    corridor to traverse and the working-memory demand collapses. Use a larger
+    len_edge or a higher difficulty.
+    """
+    assert len_edge % 2 == 1 and len_edge >= 5, "len_edge must be odd and >= 5"
+    w = len_edge + 2
+    if   difficulty == 0: h = (len_edge - 1) // 2 + 1
+    elif difficulty == 1: h = (len_edge + 1) // 2 + 1
+    elif difficulty == 2: h = (len_edge + 1) // 2 + 2
+    else: raise ValueError(f"Invalid difficulty: {difficulty}")
+    stem = h - 3   # rows strictly between START (h-2) and the arm row (1)
+    if stem < 1:
+        raise ValueError(
+            f"Degenerate grid: len_edge={len_edge}, difficulty={difficulty} "
+            f"gives h={h} (stem length {stem}). START would sit on the arm row "
+            f"with no corridor. Use len_edge>=7, or raise difficulty "
+            f"(len_edge=5 needs difficulty>=2; len_edge>=7 works at any difficulty).")
+    return int(h), int(w)
 
 
-def _blocked_cells(blocked_side):
-    if blocked_side == "L":
-        return {L_ARM1, L_END}
-    return {R_ARM1, R_END}
+def _geometry(len_edge, difficulty):
+    """Static cell coordinates + passable mask for the parametric grid."""
+    h, w = grid_dims(len_edge, difficulty)
+    cx = (w - 1) // 2
+    arm_row = 1
+    junction = (arm_row, cx)
+    l_end = (arm_row, 1)
+    r_end = (arm_row, w - 2)
+    start = (h - 2, cx)
+
+    passable = np.zeros((h, w), dtype=bool)
+    passable[arm_row, 1:w - 1] = True       # arm corridor
+    passable[arm_row:h - 1, cx] = True       # central stem
+
+    if h > 6:                                # large-grid antechamber (reference)
+        passable[2, cx - 2:cx + 3] = True
+        passable[3, cx - 1:cx + 2] = True
+
+    return {"h": h, "w": w, "cx": cx, "arm_row": arm_row,
+            "junction": junction, "l_end": l_end, "r_end": r_end,
+            "start": start, "passable": passable}
 
 
-class TMazeFreeNav:
-    def __init__(self, cfg, rng):
+def maze_layout(cfg=None):
+    """Layout dict for the visualiser. Uses cfg's len_edge/difficulty if given."""
+    le   = getattr(cfg, "len_edge", 5) if cfg is not None else 5
+    diff = getattr(cfg, "difficulty", 0) if cfg is not None else 0
+    g = _geometry(le, diff)
+    ys, xs = np.where(g["passable"])
+    return {"rows": g["h"], "cols": g["w"],
+            "passable": [[int(y), int(x)] for y, x in zip(ys, xs)],
+            "start": list(g["start"]), "junction": list(g["junction"]),
+            "l_end": list(g["l_end"]), "r_end": list(g["r_end"])}
+
+
+class TMazeVecEnv:
+    """Vectorised env over B parallel trials. step() takes a [B] action array
+    and returns [B] reward/done arrays."""
+    def __init__(self, cfg, rng, batch_size):
         self.cfg = cfg
         self.rng = rng
+        self.B   = int(batch_size)
         self.current_delay = cfg.delay_start
-        self.reward_scale = 1.0   # set to ~0 for devaluation (H3)
+        self.reward_scale  = 1.0
+
+        self.g = _geometry(getattr(cfg, "len_edge", 5),
+                           getattr(cfg, "difficulty", 0))
+        self.h, self.w = self.g["h"], self.g["w"]
+        self._passable = self.g["passable"]
+        self._junction = np.array(self.g["junction"])
+        self._l_end    = np.array(self.g["l_end"])
+        self._r_end    = np.array(self.g["r_end"])
+        self._start    = np.array(self.g["start"])
+        cx = self.g["cx"]
+        self._l_arm_cols = np.arange(1, cx)
+        self._r_arm_cols = np.arange(cx + 1, self.w - 1)
+        self._arm_row = self.g["arm_row"]
+        self.pos = None
         self.reset()
 
     def advance_delay(self):
         self.current_delay = min(self.current_delay + 1, self.cfg.delay_max)
 
-    # ------------------------------------------------------------------ reset
-    def reset(self):
-        self.blocked   = self.rng.choice(["L", "R"])
-        self.open_side = "R" if self.blocked == "L" else "L"
-        self.phase     = "pre_sample"
-        self.pos       = START
-        self.delay_idx = 0
-        self.step_count = 0
-        self.done      = False
-        self._phase_signal = np.zeros(3, dtype=np.float32)
+    def reset(self, mask=None):
+        """Reset all envs, or only those where mask is True."""
+        B = self.B
+        if mask is None:
+            mask = np.ones(B, dtype=bool)
+        n = int(mask.sum())
+        if self.pos is None:
+            self.pos        = np.tile(self._start, (B, 1)).astype(np.int64)
+            self.blocked    = np.empty(B, dtype="<U1")
+            self.open_side  = np.empty(B, dtype="<U1")
+            self.phase      = np.zeros(B, dtype=np.int64)
+            self.delay_idx  = np.zeros(B, dtype=np.int64)
+            self.step_count = np.zeros(B, dtype=np.int64)
+            self.done       = np.zeros(B, dtype=bool)
+            self.correct    = np.zeros(B, dtype=bool)
+            self._sig       = np.zeros((B, 3), dtype=np.float32)
+        if n == 0:
+            return self.obs()
+        idx = np.where(mask)[0]
+        blk = self.rng.integers(0, 2, size=n)
+        self.blocked[idx]    = np.where(blk == 0, "L", "R")
+        self.open_side[idx]  = np.where(blk == 0, "R", "L")
+        self.pos[idx]        = self._start
+        self.phase[idx]      = PRE_SAMPLE
+        self.delay_idx[idx]  = 0
+        self.step_count[idx] = 0
+        self.done[idx]       = False
+        self.correct[idx]    = False
+        self._sig[idx]       = 0.0
         return self.obs()
 
-    # ----------------------------------------------------------- passability
-    def _passable(self, cell):
-        if cell not in PASSABLE_ALL:
-            return False
-        if self.phase == "sample" and cell in _blocked_cells(self.blocked):
-            return False
-        return True
+    def _passable_target(self, ny, nx, phase, blocked):
+        B = self.B
+        inb = (ny >= 0) & (ny < self.h) & (nx >= 0) & (nx < self.w)
+        ok = np.zeros(B, dtype=bool)
+        ok[inb] = self._passable[ny[inb], nx[inb]]
+        in_sample = phase == SAMPLE
+        if in_sample.any():
+            on_arm_row = ny == self._arm_row
+            blk_L = (blocked == "L")
+            left_cols  = np.isin(nx, self._l_arm_cols)
+            right_cols = np.isin(nx, self._r_arm_cols)
+            seal = in_sample & on_arm_row & (
+                (blk_L & left_cols) | (~blk_L & right_cols))
+            ok &= ~seal
+        return ok
 
-    # --------------------------------------------------------------- observe
     def obs(self):
-        o = np.zeros(OBS_DIM, dtype=np.float32)
-        o[0] = self.pos[1] / (COLS - 1)   # normalized column (x)
-        o[1] = self.pos[0] / (ROWS - 1)   # normalized row (y)
-        # o[2] = 0  (prev-action slot, left zero like supervisor)
-        o[3:6] = self._phase_signal
+        o = np.zeros((self.B, OBS_DIM), dtype=np.float32)
+        o[:, 0] = self.pos[:, 1] / (self.w - 1)
+        o[:, 1] = self.pos[:, 0] / (self.h - 1)
+        o[:, 3:6] = self._sig
         return o
 
     def obs_hab(self):
-        """4D egocentric-like observation for the habitual system: no position.
-        [0, sig_L, sig_R, sig_choice] — phase signals only."""
-        o = np.zeros(4, dtype=np.float32)
-        # o[0] = 0  (prev-action slot)
-        o[1:4] = self._phase_signal
+        o = np.zeros((self.B, OBS_DIM_HAB), dtype=np.float32)
+        o[:, 1:4] = self._sig
         return o
 
     @property
     def agent_controlled(self):
-        return True   # agent navigates throughout
+        return True
 
-    # ------------------------------------------------------------------ step
+    def step(self, actions):
+        a = np.asarray(actions).reshape(self.B)
+        active = ~self.done
+        B = self.B
+        task_r = np.zeros(B, dtype=np.float32)
+        int_r  = np.zeros(B, dtype=np.float32)
+
+        self.step_count += active.astype(np.int64)
+
+        ny = self.pos[:, 0] + _DR[a]
+        nx = self.pos[:, 1] + _DC[a]
+        legal = self._passable_target(ny, nx, self.phase, self.blocked) & active
+        self.pos[legal, 0] = ny[legal]
+        self.pos[legal, 1] = nx[legal]
+
+        is_wait = (a == 4)
+        cost = np.where(is_wait, self.cfg.wait_cost, self.cfg.step_cost).astype(np.float32)
+        int_r  -= cost * active
+        task_r -= cost * active
+
+        py, px = self.pos[:, 0], self.pos[:, 1]
+
+        # PRE_SAMPLE -> SAMPLE
+        m = active & (self.phase == PRE_SAMPLE)
+        at_jct = m & (py == self._junction[0]) & (px == self._junction[1])
+        just_entered_sample = np.zeros(self.B, dtype=bool)
+        if at_jct.any():
+            self.phase[at_jct] = SAMPLE
+            task_r[at_jct] += self.cfg.junction_bonus
+            self._sig[at_jct] = 0.0
+            open_L = at_jct & (self.open_side == "L")
+            open_R = at_jct & (self.open_side == "R")
+            self._sig[open_L, 0] = self.cfg.sig_val
+            self._sig[open_R, 1] = self.cfg.sig_val
+            just_entered_sample = at_jct
+
+        # SAMPLE -> DELAY (skip envs that just entered SAMPLE this step)
+        m = active & (self.phase == SAMPLE) & (~just_entered_sample)
+        end_y = self._l_end[0]
+        open_is_L = (self.open_side == "L")
+        tgt_x = np.where(open_is_L, self._l_end[1], self._r_end[1])
+        at_open_end = m & (py == end_y) & (px == tgt_x)
+        just_entered_delay = np.zeros(self.B, dtype=bool)
+        if at_open_end.any():
+            self.phase[at_open_end] = DELAY
+            task_r[at_open_end] += self.cfg.arm_end_bonus
+            self.delay_idx[at_open_end] = 0
+            just_entered_delay = at_open_end
+
+        # DELAY -> CHOICE (skip envs that just entered DELAY this step)
+        m = active & (self.phase == DELAY) & (~just_entered_delay)
+        just_entered_choice = np.zeros(self.B, dtype=bool)
+        if m.any():
+            self._sig[m] *= 0.1
+            self.delay_idx[m] += 1
+            to_choice = m & (self.delay_idx >= self.current_delay)
+            if to_choice.any():
+                self.phase[to_choice] = CHOICE
+                self._sig[to_choice] = 0.0
+                self._sig[to_choice, 2] = self.cfg.sig_val
+                just_entered_choice = to_choice
+
+        # CHOICE -> terminal. An env that *just* entered CHOICE this step is
+        # excluded (it is still standing on the sampled arm end); it gets a free
+        # step to move first. This reproduces the original elif-chain semantics,
+        # where the step that set phase='choice' did not also run the choice test.
+        m = active & (self.phase == CHOICE) & (~just_entered_choice)
+        at_L = m & (py == self._l_end[0]) & (px == self._l_end[1])
+        at_R = m & (py == self._r_end[0]) & (px == self._r_end[1])
+        reached = at_L | at_R
+        if reached.any():
+            reached_side = np.where(at_L, "L", "R")
+            corr = reached & (reached_side == self.blocked)
+            self.correct[reached] = corr[reached]
+            task_r[corr] += self.cfg.test_reward * self.reward_scale
+            int_r[reached] += self.cfg.completion_bonus
+            self.done[reached] = True
+
+        timeout = active & (~self.done) & (self.step_count >= self.cfg.max_episode_steps)
+        if timeout.any():
+            self.correct[timeout] = False
+            self.done[timeout] = True
+
+        info = {"correct": self.correct.copy(), "phase": self.phase.copy()}
+        return task_r, int_r, self.done.copy(), info
+
+
+class TMazeFreeNav:
+    """B=1 facade with the original scalar interface. Wraps TMazeVecEnv so the
+    analysis and trajectory code needs no changes."""
+    def __init__(self, cfg, rng):
+        self._env = TMazeVecEnv(cfg, rng, batch_size=1)
+        self.cfg = cfg
+
+    @property
+    def current_delay(self): return self._env.current_delay
+    @current_delay.setter
+    def current_delay(self, v): self._env.current_delay = v
+    def advance_delay(self): self._env.advance_delay()
+
+    @property
+    def reward_scale(self): return self._env.reward_scale
+    @reward_scale.setter
+    def reward_scale(self, v): self._env.reward_scale = v
+
+    @property
+    def pos(self): return (int(self._env.pos[0, 0]), int(self._env.pos[0, 1]))
+    @property
+    def phase(self): return _PHASE_NAME[int(self._env.phase[0])]
+    @property
+    def blocked(self): return str(self._env.blocked[0])
+    @property
+    def open_side(self): return str(self._env.open_side[0])
+
+    @property
+    def _phase_signal(self): return self._env._sig[0]
+    @_phase_signal.setter
+    def _phase_signal(self, v): self._env._sig[0] = v
+
+    def reset(self):
+        self._env.reset()
+        return self.obs()
+
+    def obs(self): return self._env.obs()[0]
+    def obs_hab(self): return self._env.obs_hab()[0]
+
     def step(self, action):
-        task_r, int_r, correct = 0.0, 0.0, None
-        self.step_count += 1
-
-        # --- move (WAIT keeps position) ---
-        dr, dc = DELTAS[action]
-        nxt = (self.pos[0] + dr, self.pos[1] + dc)
-        if nxt in PASSABLE_ALL and self._passable(nxt):
-            self.pos = nxt
-
-        # --- per-step efficiency cost ---
-        cost = self.cfg.wait_cost if action == 4 else self.cfg.step_cost
-        int_r -= cost
-        task_r -= cost   # step-cost shaping for goal-directed value system
-
-        # --- phase transitions ---
-        if self.phase == "pre_sample" and self.pos == JUNCTION:
-            self.phase = "sample"
-            task_r += self.cfg.junction_bonus   # dense shaping: reward reaching junction
-            # set phase signal: L_open → sig_L, R_open → sig_R
-            self._phase_signal[:] = 0.0
-            if self.open_side == "L":
-                self._phase_signal[0] = _SIG_VAL
-            else:
-                self._phase_signal[1] = _SIG_VAL
-
-        elif self.phase == "sample":
-            sample_end = L_END if self.open_side == "L" else R_END
-            if self.pos == sample_end:
-                self.phase = "delay"
-                task_r += self.cfg.arm_end_bonus   # dense shaping: reward reaching arm end
-                self.delay_idx = 0
-
-        elif self.phase == "delay":
-            self._phase_signal *= 0.1   # exponential decay
-            self.delay_idx += 1
-            if self.delay_idx >= self.current_delay:
-                self.phase = "choice"
-                self._phase_signal[:] = 0.0
-                self._phase_signal[2] = _SIG_VAL   # "go-time" signal
-
-        elif self.phase == "choice":
-            if self.pos in (L_END, R_END):
-                reached = "L" if self.pos == L_END else "R"
-                correct = (reached == self.blocked)   # non-match rule
-                if correct:
-                    task_r += self.cfg.test_reward * self.reward_scale
-                int_r += self.cfg.completion_bonus
-                self.done = True
-
-        # --- timeout ---
-        if not self.done and self.step_count >= self.cfg.max_episode_steps:
-            correct = False
-            self.done = True
-
-        info = {"agent_step": True, "correct": correct, "phase": self.phase}
-        return task_r, int_r, self.done, info
+        task_r, int_r, done, info = self._env.step(np.array([action]))
+        terminal = bool(done[0])
+        correct = bool(info["correct"][0]) if terminal else None
+        scalar_info = {"agent_step": True, "correct": correct,
+                       "phase": _PHASE_NAME[int(info["phase"][0])]}
+        return float(task_r[0]), float(int_r[0]), terminal, scalar_info

@@ -64,14 +64,14 @@ def evaluate(model, env, cfg, n, **kw):
 
 
 def evaluate_vec(model, env, cfg, n, force_w=None, lesion=None, mot=1.0):
-    """Vectorised evaluation: B=batch_size parallel envs, ceil(n/B) batches.
-    Replaces evaluate() in the training loop — ~10x faster (BLAS-3 forward pass)."""
+    """Vectorised evaluation: one TMazeVecEnv steps B trials at once, ceil(n/B)
+    batches. All B environments advance in a single C-level NumPy step() — no
+    per-env Python loop — and the forward pass is a single [B x n] matmul."""
+    from environment import TMazeVecEnv
     B = min(cfg.batch_size, n)
     rng = np.random.default_rng(0)
-    _envs = [TMazeFreeNav(cfg, np.random.default_rng(rng.integers(1 << 32)))
-             for _ in range(B)]
-    for e in _envs:
-        e.current_delay = env.current_delay
+    venv = TMazeVecEnv(cfg, rng, batch_size=B)
+    venv.current_delay = env.current_delay
 
     all_correct, all_da, all_w = [], [], []
     dev = cfg.device
@@ -79,38 +79,36 @@ def evaluate_vec(model, env, cfg, n, force_w=None, lesion=None, mot=1.0):
     with torch.no_grad():
         while len(all_correct) < n:
             b = min(B, n - len(all_correct))
-            model.reset_state(b)
-            for e in _envs[:b]:
-                e.reset()
-            active = [True] * b
-            das = [[] for _ in range(b)]
-            ws  = [[] for _ in range(b)]
-            correct = [False] * b
+            model.reset_state(B)
+            venv.reset()                       # fresh trials for all B lanes
+            active = np.ones(B, dtype=bool)
+            da_sum = np.zeros(B); w_sum = np.zeros(B); cnt = np.zeros(B)
+            correct = np.zeros(B, dtype=bool)
 
             for _ in range(cfg.max_episode_steps):
-                obs_np     = np.stack([_envs[i].obs()     for i in range(b)])
-                obs_hab_np = np.stack([_envs[i].obs_hab() for i in range(b)])
-                obs_t      = _t(obs_np, dev)
-                obs_hab_t  = _t(obs_hab_np, dev)
-                out        = model.step(obs_t, obs_hab_t, force_w=force_w,
-                                        lesion=lesion, mot=mot)
-                acts   = out["combined"].argmax(-1)   # greedy [b]
+                obs_t     = _t(venv.obs(),     dev)
+                obs_hab_t = _t(venv.obs_hab(), dev)
+                out  = model.step(obs_t, obs_hab_t, force_w=force_w,
+                                  lesion=lesion, mot=mot)
+                acts = out["combined"].argmax(-1).cpu().numpy()   # greedy [B]
 
-                for i in range(b):
-                    if active[i]:
-                        das[i].append(float(out["da_request"][i]))
-                        ws[i].append(float(out["w_gd"][i]))
-                        _, _, done, info = _envs[i].step(int(acts[i]))
-                        if done:
-                            active[i] = False
-                            correct[i] = bool(info["correct"])
+                da_np = out["da_request"].cpu().numpy()
+                w_np  = out["w_gd"].cpu().numpy()
+                da_sum += da_np * active
+                w_sum  += w_np  * active
+                cnt    += active
 
-                if not any(active):
+                _, _, done, info = venv.step(acts)
+                newly = active & done
+                correct[newly] = info["correct"][newly]
+                active &= ~done
+                if not active.any():
                     break
 
-            all_correct.extend(correct[:b])
-            all_da.extend([float(np.mean(d)) if d else 0.0 for d in das[:b]])
-            all_w.extend([float(np.mean(w)) if w else 0.0 for w in ws[:b]])
+            cnt = np.maximum(cnt, 1)
+            all_correct.extend(correct[:b].tolist())
+            all_da.extend((da_sum[:b] / cnt[:b]).tolist())
+            all_w.extend((w_sum[:b] / cnt[:b]).tolist())
 
     k = sum(all_correct[:n])
     return {"acc": k / n, "k": k, "n": n,
@@ -121,7 +119,7 @@ def evaluate_vec(model, env, cfg, n, force_w=None, lesion=None, mot=1.0):
 # --------------------------------------------------------------- H1
 def h1_learning(model, env, cfg):
     from scipy.stats import binomtest
-    ev = evaluate(model, env, cfg, cfg.final_trials)
+    ev = evaluate_vec(model, env, cfg, cfg.final_trials)
     bt = binomtest(ev["k"], ev["n"], 0.5, alternative="greater")
     lo, hi = bt.proportion_ci(confidence_level=0.95)
     return {"accuracy": ev["acc"], "k": ev["k"], "n": ev["n"],
@@ -151,8 +149,8 @@ def h3_devaluation(model, state_learn, state_maint, env, cfg):
     out = {}
     for name, state in [("learning", state_learn), ("maintenance", state_maint)]:
         model.load_state_dict(state)
-        before = evaluate(model, env, cfg, cfg.eval_trials, mot=1.0)["acc"]
-        after  = evaluate(model, env, cfg, cfg.eval_trials, mot=0.0)["acc"]
+        before = evaluate_vec(model, env, cfg, cfg.eval_trials, mot=1.0)["acc"]
+        after  = evaluate_vec(model, env, cfg, cfg.eval_trials, mot=0.0)["acc"]
         out[name] = {"before": before, "after": after, "drop": before - after}
     out["dissociation_pass"] = (out["learning"]["drop"] > 0.15
                                 and out["maintenance"]["drop"] < 0.10)
@@ -164,19 +162,19 @@ def h4_lesions(model, state_learn, state_maint, env, cfg):
     out = {}
     for name, state in [("learning", state_learn), ("maintenance", state_maint)]:
         model.load_state_dict(state)
-        out[name] = {les: evaluate(model, env, cfg, cfg.eval_trials, lesion=les)["acc"]
+        out[name] = {les: evaluate_vec(model, env, cfg, cfg.eval_trials, lesion=les)["acc"]
                      for les in ("gd", "hab", "both")}
-        out[name]["intact"] = evaluate(model, env, cfg, cfg.eval_trials)["acc"]
+        out[name]["intact"] = evaluate_vec(model, env, cfg, cfg.eval_trials)["acc"]
     return out
 
 
 # --------------------------------------------------------------- H5
 def h5_reactivation(model, state_maint, env, cfg):
     model.load_state_dict(state_maint)
-    intact   = evaluate(model, env, cfg, cfg.eval_trials)
-    silenced = evaluate(model, env, cfg, cfg.eval_trials, lesion="hab")
+    intact   = evaluate_vec(model, env, cfg, cfg.eval_trials)
+    silenced = evaluate_vec(model, env, cfg, cfg.eval_trials, lesion="hab")
     sil_before = silenced["acc"]
-    sil_after  = evaluate(model, env, cfg, cfg.eval_trials, lesion="hab", mot=0.0)["acc"]
+    sil_after  = evaluate_vec(model, env, cfg, cfg.eval_trials, lesion="hab", mot=0.0)["acc"]
     da_rise = silenced["da_mean"] - intact["da_mean"]
     return {"da_request_intact": intact["da_mean"],
             "da_request_hab_silenced": silenced["da_mean"],
@@ -214,6 +212,13 @@ def h6_attractor(model, state_maint, env, cfg):
                 "participation_ratio": 0.0, "pass": False,
                 "note": f"Too few delay states collected ({len(X)}); model may not reach delay phase."}
     X = np.array(X); y = np.array(y)
+    if len(np.unique(y)) < 2:
+        return {"pca_coords": [], "labels": y.tolist(), "decoder_acc": 0.0,
+                "decoder_sd": 0.0, "participation_ratio": participation_ratio(X),
+                "pass": False,
+                "note": ("All collected delay states share one class "
+                         f"({len(X)} states, label {int(y[0])}); decoder undefined. "
+                         "Model likely reaches only one arm — not yet learned.")}
     pca = PCA(n_components=2).fit(X)
     coords = pca.transform(X)
     clf = LogisticRegression(max_iter=1000)
@@ -237,14 +242,17 @@ def fixed_points(model, env, cfg, n_seeds=30, steps=400, lr=0.05):
     else:
         env.step(3); env.step(3)   # enters delay
     env._phase_signal[:] = 0.0    # cueless (fully-decayed delay)
-    obs = env.obs()
-    x = _t(obs, cfg.device)   # [obs_dim]
+    obs = env.obs_hab()           # habitual net takes the 4D obs, not the 6D GD obs
+    x = _t(obs, cfg.device)   # [obs_dim_hab]
     hab = model.hab
+    W_rec = hab.rec_weight().detach()   # frozen weights; only h is optimised
+    W_in  = hab.W_in.detach()
+    b     = hab.b.detach()
     res = []
     # dh dynamics use single-vector form (equivalent to batched for 1-D h)
     def _dh(hh):
         r = torch.tanh(hh)
-        return -hh + r @ hab.W.T + x @ hab.W_in.T + hab.b
+        return -hh + r @ W_rec.T + x @ W_in.T + b
     for _ in range(n_seeds):
         h = torch.randn(cfg.n_hab, device=cfg.device) * 0.5
         h.requires_grad_(True)

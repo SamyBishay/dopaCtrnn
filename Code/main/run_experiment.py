@@ -47,6 +47,19 @@ def main():
     ap.add_argument("--device", type=str, default="cpu")
     ap.add_argument("--n-gd", type=int, default=None)
     ap.add_argument("--n-hab", type=int, default=None)
+    ap.add_argument("--hab-rank", type=int, default=None,
+                    help="0=full-rank habitual (default); >0 = low-rank W_rec")
+    ap.add_argument("--len-edge", type=int, default=None,
+                    help="inner grid edge (odd, >=5); grid width = len_edge+2")
+    ap.add_argument("--difficulty", type=int, default=None, choices=[0, 1, 2],
+                    help="0=easy 1=medium 2=hard (stem length / grid height)")
+    ap.add_argument("--gae-lambda", type=float, default=None)
+    ap.add_argument("--no-ret-norm", action="store_true",
+                    help="disable return normalisation")
+    ap.add_argument("--ape-decay", action="store_true",
+                    help="fade APE weight once habitual surpasses combined")
+    ap.add_argument("--ckpt-every", type=int, default=None,
+                    help="write a resumable checkpoint every N episodes (0=off)")
     args = ap.parse_args()
 
     cfg = Config(seed=args.seed, device=args.device)
@@ -56,10 +69,26 @@ def main():
         cfg.n_gd = args.n_gd
     if args.n_hab is not None:
         cfg.n_hab = args.n_hab
+    if args.hab_rank is not None:
+        cfg.hab_rank = args.hab_rank
+    if args.len_edge is not None:
+        cfg.len_edge = args.len_edge
+    if args.difficulty is not None:
+        cfg.difficulty = args.difficulty
+    if args.gae_lambda is not None:
+        cfg.gae_lambda = args.gae_lambda
+    if args.no_ret_norm:
+        cfg.ret_norm = False
+    if args.ape_decay:
+        cfg.ape_decay = True
 
     tag = f"seed{args.seed}" + ("_untrained" if args.untrained else "")
     outdir = os.path.join(args.outdir, tag)
     os.makedirs(outdir, exist_ok=True)
+    if args.ckpt_every is not None:
+        cfg.ckpt_every = args.ckpt_every
+    if cfg.ckpt_every > 0:
+        cfg.ckpt_path = os.path.join(outdir, "train_state.pt")
     eval_env = TMazeFreeNav(cfg, np.random.default_rng(args.seed + 9_999))
 
     if args.untrained:
@@ -99,7 +128,7 @@ def main():
                                      greedy=not args.untrained)
     with open(os.path.join(outdir, "trajectories.json"), "w") as f:
         json.dump({"seed": args.seed, "untrained": args.untrained,
-                   "maze": maze_layout(), "train": train_trajs, "eval": eval_trajs},
+                   "maze": maze_layout(cfg), "train": train_trajs, "eval": eval_trajs},
                   f, default=float)
 
     # ---- per-seed figures ----
