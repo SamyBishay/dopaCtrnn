@@ -43,7 +43,7 @@ Commit: 5c71189 (no new commit this session)
 - Pushed all pending commits (956a7da, 5c71189, 5aee5b7) to origin main
 
 ## 2026-06-19 — fix: detach w_GD tensor before float conversion in train.py
-Commit: –
+Commit: d5e179a
 
 - Created Python 3.12.13 venv at Code/venv/ and installed requirements
 - Ran full 5000-episode experiment (seed 0): all H1–H6 pass
@@ -56,7 +56,7 @@ Commit: –
 - Added Code/venv/, __pycache__/ to .gitignore
 
 ## 2026-06-19 — notes: diffsupervisorv1 comparison
-Commit: –
+Commit: d5e179a
 
 - Wrote diffsupervisorv1.md comparing my implementation vs supervisor's tunl_a2c_two_area.py
 - Key finding: my version is trivial in 3 compounding ways:
@@ -108,7 +108,7 @@ Commit: 5e329ea
 - Next: more episodes (60k+) needed to train through delay=10+
 
 ## 2026-06-20 — viz: step-by-step playback + heatmap overlay
-Commit: –
+Commit: d5e179a
 
 - Rewrote make_viz.py: step slider + play/pause per panel (every timestep visible)
 - Heatmap overlay (visit-frequency per cell) replaces overlapping line overlay
