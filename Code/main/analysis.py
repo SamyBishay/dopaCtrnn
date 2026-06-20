@@ -218,6 +218,7 @@ def h6_attractor(model, state_maint, env, cfg):
     return {"pca_coords": coords.tolist(), "labels": y.tolist(),
             "decoder_acc": float(cv.mean()), "decoder_sd": float(cv.std()),
             "participation_ratio": participation_ratio(X),
+            "explained_variance_ratio": pca.explained_variance_ratio_.tolist(),
             "pass": cv.mean() >= 0.90}
 
 

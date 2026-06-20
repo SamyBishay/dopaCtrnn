@@ -104,10 +104,10 @@ def main():
 
     # ---- per-seed figures ----
     if logs is not None:
-        F.fig1_handoff(logs, outdir)
+        F.fig1_handoff(logs, outdir, results.get("h2"))
     F.fig2_devaluation(results["h3"], outdir)
     F.fig3_lesions(results["h4"], outdir)
-    F.fig4_reactivation(results["h5"], outdir)
+    F.fig4_reactivation(results["h5"], outdir, results["h3"])
     F.fig5_attractor(results["h6"], outdir)
 
     print(f"\n[{tag}] H1 acc={results['h1']['accuracy']:.3f} "

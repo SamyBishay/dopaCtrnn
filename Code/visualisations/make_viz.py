@@ -13,6 +13,7 @@ Each panel has:
 Trivial trajectories (agent never leaves START) are excluded.
 """
 import argparse
+import base64
 import glob
 import json
 import os
@@ -22,7 +23,7 @@ TEMPLATE = r"""<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>dopaCTRNN maze viewer</title>
 <style>
-  :root{--bg:#16191f;--panel:#1e2229;--ink:#e0e0e0;--mut:#7880940;
+  :root{--bg:#16191f;--panel:#1e2229;--ink:#e0e0e0;--mut:#788094;
         --hab:rgb(0,172,180);--gd:rgb(218,48,56);}
   *{box-sizing:border-box;margin:0;padding:0}
   body{background:var(--bg);color:var(--ink);font:13px/1.5 system-ui,sans-serif}
@@ -74,15 +75,28 @@ TEMPLATE = r"""<!doctype html>
     use the step slider or &#9654;/&#9646; to step through each timestep &nbsp;&middot;&nbsp;
     <span style="color:var(--gd)">&#9632; goal-directed</span>
     <span style="color:var(--hab)"> &#9632; habitual</span> &nbsp;
-    (path colour = w<sub>GD</sub>)
+    (path colour = w<sub>GD</sub> during navigation; choice segment = green/red outcome)
+    &nbsp;&middot;&nbsp; <span style="color:#9090b0">w<sub>GD</sub>: expression weight — gates
+    W<sub>eff</sub>=f(DA)&middot;W at each step; not a learned parameter</span>
   </div>
 </header>
+<div id="untrainedBanner" style="display:none;background:#332200;color:#cc9900;
+  padding:6px 18px;font-size:12px;font-weight:700;border-bottom:1px solid #554400">
+  Untrained baseline &mdash; weights are random initialisation; no learned policy.
+  Trajectories illustrate the architectural structure, not task competence.
+</div>
 <div class="gc">
   <span><label>experiment</label><select id="expSel"></select></span>
   <span><label>mode</label>
     <select id="modeSel">
       <option value="train">training progression</option>
       <option value="eval">eval (final policy)</option>
+    </select></span>
+  <span id="epochRow"><label>training window</label>
+    <select id="epochSel">
+      <option value="all">all trials</option>
+      <option value="early">early (first 30%)</option>
+      <option value="late">late (last 30%)</option>
     </select></span>
   <span id="gcInfo" class="lbl"></span>
 </div>
@@ -168,6 +182,15 @@ TEMPLATE = r"""<!doctype html>
 </div>
 
 </div><!-- .panels -->
+
+<div id="figsWrap" style="padding:0 14px 24px;border-top:1px solid #0a0d14;margin-top:4px">
+  <div style="font:700 11px system-ui;color:#606878;text-transform:uppercase;
+              letter-spacing:.05em;padding:12px 0 10px">Analysis figures</div>
+  <div id="figsGrid" style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start"></div>
+  <div id="figsEmpty" style="font-size:12px;color:#444c5c;display:none">
+    No figures found for this experiment.</div>
+</div>
+
 <script>
 const VIZ = __VIZ_JSON__;
 const M = VIZ.maze;
@@ -228,7 +251,7 @@ function drawSingleAtStep(ctx,traj,step){
 
   const phases=traj.phase||null;
   const n=traj.pos.length;
-  const end=Math.min(step+1,n-1); // draw segments 0..end-1
+  const end=Math.min(step,n-1); // draw segments 0..end-1 (segment i arrives at pos[i+1])
 
   ctx.save(); ctx.lineWidth=4; ctx.lineCap='round'; ctx.lineJoin='round';
   for(let i=0;i<end;i++){
@@ -288,7 +311,8 @@ function drawTimeline(ctx,traj,step){
   ctx.setLineDash([]); ctx.restore();
   ctx.save(); ctx.fillStyle='#4a5060'; ctx.font='9px system-ui';
   ctx.textAlign='right'; ctx.fillText('1',x1,y0+4); ctx.fillText('0',x1,y1+4);
-  ctx.textAlign='left'; ctx.fillStyle='#5080a0'; ctx.fillText('w_GD',x0,10);
+  ctx.textAlign='left'; ctx.fillStyle='#5080a0';
+  ctx.fillText('w_GD (expression weight: 0=habitual, 1=goal-directed)',x0,10);
   ctx.restore();
   const dx=(x1-x0)/Math.max(1,n-1);
   // Phase bands
@@ -369,10 +393,18 @@ function drawHeatmap(ctx,list){
 // ── data helpers ──────────────────────────────────────────────────────────
 function curExp(){ return VIZ.experiments[+document.getElementById('expSel').value]; }
 function curMode(){ return document.getElementById('modeSel').value; }
+function curEpoch(){ return document.getElementById('epochSel').value; }
 function isNonTrivial(t){ const p0=t.pos[0]; return t.pos.some(p=>p[0]!==p0[0]||p[1]!==p0[1]); }
+function epochFilter(list){
+  const ep=curEpoch();
+  if(ep==='early'){ const n=Math.max(1,Math.ceil(list.length*0.3)); return list.slice(0,n); }
+  if(ep==='late'){  const n=Math.floor(list.length*0.7); return list.slice(n); }
+  return list;
+}
 function curLists(){
   const e=curExp(),mode=curMode();
-  const all=(mode==='train'?e.train:e.eval)||[];
+  let all=(mode==='train'?e.train:e.eval)||[];
+  if(mode==='train') all=epochFilter(all);
   const nt=all.filter(isNonTrivial);
   return{L:nt.filter(t=>t.blocked==='R'), R:nt.filter(t=>t.blocked==='L')};
 }
@@ -418,7 +450,7 @@ function renderStep(side){
   const act=t.a?aNames[t.a[Math.min(step,n-2)]]:'';
   stepInfo.textContent=[
     ph?`phase: ${ph.replace('_',' ')}`:'',
-    `w_GD: ${w?w.toFixed(3):'?'}`,
+    `w_GD: ${w!=null?w.toFixed(3):'?'}`,
     `pos: (${pos[0]},${pos[1]})`,
     act?`action: ${act}`:''
   ].filter(Boolean).join('  ·  ');
@@ -468,7 +500,33 @@ function showSide(side){
   } else phleg.innerHTML='';
 }
 
+function refreshFigs(){
+  const e=curExp();
+  const grid=document.getElementById('figsGrid');
+  const empty=document.getElementById('figsEmpty');
+  grid.innerHTML='';
+  const figs=e.figs||[];
+  if(!figs.length){ empty.style.display=''; return; }
+  empty.style.display='none';
+  figs.forEach(fig=>{
+    const wrap=document.createElement('div');
+    wrap.style.cssText='display:flex;flex-direction:column;align-items:center;gap:5px';
+    const lbl=document.createElement('div');
+    lbl.style.cssText='font-size:10px;color:#606878;font-weight:700;text-transform:uppercase;letter-spacing:.04em';
+    lbl.textContent=fig.label;
+    const img=document.createElement('img');
+    img.src=fig.src;
+    img.style.cssText='max-width:420px;width:100%;border-radius:5px;border:1px solid #252930;background:#1e2229';
+    img.title=fig.label;
+    wrap.appendChild(lbl); wrap.appendChild(img);
+    grid.appendChild(wrap);
+  });
+}
+
 function refreshAll(){
+  const isTrain=curMode()==='train';
+  document.getElementById('epochRow').style.display=isTrain?'':'none';
+  document.getElementById('untrainedBanner').style.display=curExp().untrained?'':'none';
   const lists=curLists();
   ['L','R'].forEach(side=>{
     const list=lists[side];
@@ -477,8 +535,10 @@ function refreshAll(){
     if(+trEl.value>+trEl.max) trEl.value=trEl.max;
   });
   showSide('L'); showSide('R');
+  const epochNote=isTrain&&curEpoch()!=='all'?` [${curEpoch()}]`:'';
   document.getElementById('gcInfo').textContent=
-    (lists.L.length+lists.R.length)+' non-trivial trials';
+    (lists.L.length+lists.R.length)+' non-trivial trials'+epochNote;
+  refreshFigs();
 }
 
 // ── wire up ───────────────────────────────────────────────────────────────
@@ -487,8 +547,18 @@ VIZ.experiments.forEach((e,i)=>{
   o.value=i; o.textContent='seed '+e.seed+(e.untrained?' (untrained)':'');
   document.getElementById('expSel').appendChild(o);
 });
-document.getElementById('expSel').onchange=refreshAll;
-document.getElementById('modeSel').onchange=refreshAll;
+document.getElementById('expSel').onchange=()=>{
+  ['L','R'].forEach(s=>{ document.getElementById('trial'+s).value=0; });
+  refreshAll();
+};
+document.getElementById('modeSel').onchange=()=>{
+  ['L','R'].forEach(s=>{ document.getElementById('trial'+s).value=0; });
+  refreshAll();
+};
+document.getElementById('epochSel').onchange=()=>{
+  ['L','R'].forEach(s=>{ document.getElementById('trial'+s).value=0; });
+  refreshAll();
+};
 
 ['L','R'].forEach(side=>{
   document.getElementById('trial'+side).oninput=()=>showSide(side);
@@ -525,12 +595,29 @@ def main():
     ap.add_argument("--out",  default="results/maze_viz.html")
     args = ap.parse_args()
 
+    FIG_SLOTS = [
+        ("fig1_handoff.png",     "H1/H2 – Handoff"),
+        ("fig2_devaluation.png", "H3 – Devaluation"),
+        ("fig3_lesions.png",     "H4 – Lesions"),
+        ("fig4_reactivation.png","H5 – Reactivation"),
+        ("fig5_attractor.png",   "H6 – Attractor"),
+    ]
+
     maze, exps = None, []
     for p in sorted(glob.glob(os.path.join(args.root, "seed*", "trajectories.json"))):
         d = json.load(open(p))
         maze = maze or d.get("maze")
+        seed_dir = os.path.dirname(p)
+        figs = []
+        for fname, label in FIG_SLOTS:
+            img_path = os.path.join(seed_dir, fname)
+            if os.path.exists(img_path):
+                with open(img_path, "rb") as f:
+                    b64 = base64.b64encode(f.read()).decode()
+                figs.append({"label": label, "src": f"data:image/png;base64,{b64}"})
         exps.append({"seed": d["seed"], "untrained": d.get("untrained", False),
-                     "train": d.get("train", []), "eval": d.get("eval", [])})
+                     "train": d.get("train", []), "eval": d.get("eval", []),
+                     "figs": figs})
 
     if not exps:
         print("no trajectories.json found under", args.root,
