@@ -116,3 +116,20 @@ Commit: d5e179a
 - Two-panel layout by sample side preserved; fixed duplicate const{L,R} JS bug
 - Ran seed=0 experiment: H1 acc=1.00 (p=9e-302), H6 decoder=1.00, H5 DA-rise FAIL
 - Delay curriculum reached 10; ckpt_maint at delay 8-9
+
+## 2026-06-20 — jury-proof figures and trajectory viewer
+Commit: dc16852b6a6703c7189848f178c59da44a22970d
+
+- Multi-agent pipeline (Opus + 2×Sonnet): Opus drafted ideal mémoire figure list; Sonnet audited figures.py and make_viz.py for scientific gaps and bugs
+- fig1: vertical onset markers (hab≥0.8 vs w_GD drop) to prove emergent ordering; fig2/3: chance baselines and Δ annotations; fig4: fixed hardcoded 0.0 for intact devaluation sensitivity, added PASS/FAIL+Δ to title
+- fig5: explained variance on PCA axes, system label "Habitual (DLS)", empty-data guard; fig6: jitter + empty-list guard; _save: bbox_inches="tight"
+- analysis.py: h6 now returns explained_variance_ratio; run_experiment.py: passes h2 to fig1, h3 to fig4
+- make_viz.py: fixed w===0 showing "?" (most important readout); fixed off-by-one in path rendering; added training epoch window (all/early/late 30
+## 2026-06-20 -- jury-proof figures and trajectory viewer
+Commit: dc16852b6a6703c7189848f178c59da44a22970d
+
+- Multi-agent pipeline (Opus + 2xSonnet): Opus drafted ideal memoire figure list; Sonnet audited figures.py and make_viz.py for scientific gaps and bugs
+- fig1: vertical onset markers (hab>=0.8 vs w_GD drop) to prove emergent ordering; fig2/3: chance baselines and delta annotations; fig4: fixed hardcoded 0.0 for intact devaluation sensitivity, added PASS/FAIL+delta to title
+- fig5: explained variance on PCA axes, system label "Habitual (DLS)", empty-data guard; fig6: jitter + empty-list guard; _save: bbox_inches="tight"
+- analysis.py: h6 now returns explained_variance_ratio; run_experiment.py: passes h2 to fig1, h3 to fig4
+- make_viz.py: fixed w===0 showing "?" bug; fixed off-by-one in path rendering; added training epoch window (all/early/late 30%); untrained banner; w_GD timeline label explains it is an expression weight
