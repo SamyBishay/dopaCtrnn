@@ -109,31 +109,21 @@ Maintain `Papers/PAPERS_INDEX.md` as a real, `rg`-able file regardless — Datav
 
 For any review touching more than ~3 new papers, spawn a subagent for the heavy reading so only the distilled result returns to the main context.
 
-New paper:
-1. Add PDF to Zotero, export updated library to `Papers/My Library/` to get the BibTeX citekey.
-2. Convert PDF to full-text markdown → save as `Papers/<Author Title>.md`.
-3. Write `Papers/<citekey>.md` using the structure from §3 frontmatter + these sections: **What the paper does** · **Key claims relevant to this project** · **Mechanism / model details** (if any) · **Implications for our model** · **Open questions / caveats** · wikilinks at the bottom.
-4. Add a row to `Papers/PAPERS_INDEX.md` and a `[[citekey]]` wikilink on the heading line.
+To add a new paper, run `/add-paper` — it walks through the full ingestion (bib lookup → note template → PAPERS_INDEX row → commit). For a topic search, run `/lit-search`.
 
 ---
 
 ## 6. Mémoire & soutenance
 
 - Drafts live in `Mémoire/`. Every sentence asserting a prior finding carries its `[[citekey]]`. Verify each cited claim at rung 3+ once before it ships (§1).
-- Export with pandoc: pre-process `[[citekey]]` → `[@citekey]` before calling pandoc, using `Papers/My Library/My Library.bib` as the bibliography source.
+- To export: run `/export-memoire` (converts `[[citekey]]` → `[@citekey]` and calls pandoc with `My Library.bib`).
 - Soutenance slides: derive from the mémoire and `PROJECT_STATUS_AND_PLAN.md`. Do not restate papers in full.
 
 ---
 
 ## 7. Session log
 
-At the end of every session, append a dated entry using `printf >> logs/SESSION_LOG.md` — never read the file first:
-
-```bash
-printf '\n## YYYY-MM-DD — <commit message or "no commit">\nCommit: <hash or –>\n\n<bullet summary>\n' >> logs/SESSION_LOG.md
-```
-
-Do this even for short sessions. The log is append-only — never read or edit past entries.
+At the end of every session, run `/session-log` — it generates the bullet summary and appends today's entry with `printf >>`. A Stop hook will remind you if you forget. The log is append-only: never read or edit past entries.
 
 ---
 

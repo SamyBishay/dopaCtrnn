@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"/home/samy/Documents/Obsidian Vault/.claude/hooks/session-log-reminder.sh\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/samy/Documents/Obsidian Vault/.claude/hooks/check-paper-frontmatter.py\""
+          }
+        ]
+      }
+    ]
+  }
+}
