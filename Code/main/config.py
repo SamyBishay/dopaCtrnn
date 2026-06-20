@@ -19,7 +19,8 @@ class Config:
     arm_end_bonus: float  = 0.20      # task_r shaping: sample→delay (reaching arm end)
     completion_bonus: float = 0.10    # intrinsic, reaching ANY arm end (value-free)
     n_actions: int     = 5            # 0=N 1=S 2=E 3=W 4=WAIT
-    obs_dim: int       = 6            # flat observation: [x, y, 0, sig_L, sig_R, sig_choice]
+    obs_dim: int       = 6            # GD observation: [x, y, 0, sig_L, sig_R, sig_choice]
+    obs_dim_hab: int   = 4            # Hab observation: [0, sig_L, sig_R, sig_choice] (no position)
 
     # ---- network sizes (model.py) ----
     n_gd: int    = 256                # goal-directed CTRNN units (D1/phasic + D2/tonic halves)

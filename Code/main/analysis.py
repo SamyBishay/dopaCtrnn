@@ -22,8 +22,9 @@ def rollout(model, env, cfg, force_w=None, lesion=None, mot=1.0,
         done = False
         info = {"correct": False}
         while not done:
-            obs_t = _t(env.obs(), dev).unsqueeze(0)     # [1, obs_dim]
-            out   = model.step(obs_t, obs_t, force_w=force_w, lesion=lesion, mot=mot)
+            obs_t     = _t(env.obs(),     dev).unsqueeze(0)   # [1, obs_dim]
+            obs_hab_t = _t(env.obs_hab(), dev).unsqueeze(0)   # [1, obs_dim_hab]
+            out       = model.step(obs_t, obs_hab_t, force_w=force_w, lesion=lesion, mot=mot)
             if collect_delay and env.phase == "delay":
                 delay_states.append(model.h_hab[0].clone().cpu().numpy())  # [n_hab]
             logits = out["combined"][0]                  # [n_actions]
@@ -87,10 +88,12 @@ def evaluate_vec(model, env, cfg, n, force_w=None, lesion=None, mot=1.0):
             correct = [False] * b
 
             for _ in range(cfg.max_episode_steps):
-                obs_np = np.stack([_envs[i].obs() for i in range(b)])
-                obs_t  = _t(obs_np, dev)
-                out    = model.step(obs_t, obs_t, force_w=force_w,
-                                    lesion=lesion, mot=mot)
+                obs_np     = np.stack([_envs[i].obs()     for i in range(b)])
+                obs_hab_np = np.stack([_envs[i].obs_hab() for i in range(b)])
+                obs_t      = _t(obs_np, dev)
+                obs_hab_t  = _t(obs_hab_np, dev)
+                out        = model.step(obs_t, obs_hab_t, force_w=force_w,
+                                        lesion=lesion, mot=mot)
                 acts   = out["combined"].argmax(-1)   # greedy [b]
 
                 for i in range(b):

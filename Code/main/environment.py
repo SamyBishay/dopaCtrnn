@@ -98,6 +98,14 @@ class TMazeFreeNav:
         o[3:6] = self._phase_signal
         return o
 
+    def obs_hab(self):
+        """4D egocentric-like observation for the habitual system: no position.
+        [0, sig_L, sig_R, sig_choice] — phase signals only."""
+        o = np.zeros(4, dtype=np.float32)
+        # o[0] = 0  (prev-action slot)
+        o[1:4] = self._phase_signal
+        return o
+
     @property
     def agent_controlled(self):
         return True   # agent navigates throughout

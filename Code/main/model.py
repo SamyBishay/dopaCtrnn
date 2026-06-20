@@ -75,7 +75,7 @@ class HabNet(nn.Module):
         super().__init__()
         n, a = cfg.n_hab, cfg.n_actions
         self.cfg   = cfg
-        self.W_in  = nn.Parameter(torch.randn(n, cfg.obs_dim) * 0.1)
+        self.W_in  = nn.Parameter(torch.randn(n, cfg.obs_dim_hab) * 0.1)
         self.W     = nn.Parameter(torch.randn(n, n) * (0.9 / n ** 0.5))
         self.b     = nn.Parameter(torch.zeros(n))
         self.tau_p = nn.Parameter(_mixed_tau_init(n, cfg))

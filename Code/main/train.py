@@ -54,9 +54,11 @@ def _train_batch(model, envs, cfg, opt_gd, opt_hab, da_lambda):
     active = [True] * B
 
     for _ in range(cfg.max_episode_steps):
-        obs_np = np.stack([env.obs() for env in envs])     # [B, obs_dim]
-        obs_t  = _t(obs_np, dev)
-        out    = model.step(obs_t, obs_t)
+        obs_np     = np.stack([env.obs() for env in envs])      # [B, obs_dim]
+        obs_hab_np = np.stack([env.obs_hab() for env in envs])  # [B, obs_dim_hab]
+        obs_t      = _t(obs_np, dev)
+        obs_hab_t  = _t(obs_hab_np, dev)
+        out        = model.step(obs_t, obs_hab_t)
         acts   = Categorical(logits=out["combined"]).sample()  # [B]
 
         all_pi_gd.append(out["pi_gd"]); all_pi_h.append(out["pi_h"])
@@ -147,8 +149,9 @@ def _record_episode(model, env, cfg):
     done = False; info = {"correct": False}
     with torch.no_grad():
         while not done:
-            obs_t = _t(env.obs(), dev).unsqueeze(0)   # [1, obs_dim]
-            out   = model.step(obs_t, obs_t)
+            obs_t     = _t(env.obs(),     dev).unsqueeze(0)   # [1, obs_dim]
+            obs_hab_t = _t(env.obs_hab(), dev).unsqueeze(0)   # [1, obs_dim_hab]
+            out       = model.step(obs_t, obs_hab_t)
             a     = int(out["combined"][0].argmax())
             rec_pos.append(list(env.pos))
             rec_w.append(round(float(out["w_gd"][0]), 3))
