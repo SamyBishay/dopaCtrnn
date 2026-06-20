@@ -24,10 +24,35 @@ Papers/
 Mémoire/
   memoire_introduction_section_draft.md
   memoire_method_section_draft.md
+  Guide_de_redaction_du_memoire_Master_1_2_SC.md
 Code/
   main/                        # Stage-1 implementation (see Code/main/README.md)
-  visualisations/              # trajectory viewer
+    config.py, environment.py, model.py, train.py, analysis.py, figures.py
+    run_experiment.py          # one seed end-to-end → results/ + figures + checkpoints
+    aggregate.py               # combine seeds → summary
+    results/
+      seed<N>/                 # per-seed outputs (not committed — see .gitignore)
+        results.json           # H1–H6 analysis results
+        trajectories.json      # trajectory data for the visualizer
+        ckpt_learning.pt       # model weights at end of learning phase
+        ckpt_maintenance.pt    # model weights at end of maintenance phase
+        fig1_handoff.png – fig5_attractor.png
+      summary/                 # aggregate outputs (if aggregate.py was run)
+      maze_viz.html            # built by make_viz.py; open in Firefox
+  visualisations/              # trajectory viewer builder + a copy of the Stage-1 code
+    make_viz.py                # builds maze_viz.html from results/seed*/trajectories.json
+  supervisor's code/           # supervisor's reference implementation (read-only reference)
+    tunl_a2c_two_area.py       # two-area PFC+DLS A2C on TUNL task
+    params.py                  # config for supervisor's code
+  venv/                        # Python virtualenv (not committed)
+current/                       # working notes: gap analysis, comparisons, scratch
+logs/
+  SESSION_LOG.md               # append-only session log (written by /session-log)
+rapport/                       # internship report guidelines
+soutenance/                    # defence presentation guidelines
+GOALS.md                       # high-level project goals
 PROJECT_STATUS_AND_PLAN.md     # timeline, experiment scope, one-page mémoire outline
+PROJECT_INSTRUCTIONS.md        # detailed task instructions from supervisor
 Project overview a dopamine-mediated mechanism for the goal-directed-to-habitual handoff.md
                                # settled design decisions — source of truth for the model
 ```
@@ -48,7 +73,7 @@ When you need information from the literature, climb the ladder and **stop at th
 | 4 | `Papers/My Library/files/<N>/<paper>.pdf` | visual | last resort — verify an equation or figure pixel-for-pixel |
 
 Rules:
-- Always start at rung 1. Do not load multiple notes in bulk "to be safe."
+- Always start at rung 1.
 - **Any claim going into the mémoire must be verified at rung 3 or deeper at least once.** Record the anchor in the note (`(<Author Title>.md §Results)`) once verified, so the next check is one glance.
 - Open rung-3+ files only for specific papers you actually need.
 

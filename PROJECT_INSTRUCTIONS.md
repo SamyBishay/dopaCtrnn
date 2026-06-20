@@ -32,7 +32,6 @@ You are my collaborator on an M1 Sciences Cognitives (Université Côte d'Azur) 
 
 ## OPEN questions — DO NOT decide these for me; flag them instead
 1. **DA-request neuron training signal:** reward-supervised (circularity risk) vs purely local prediction-error (consistent with the local-PE thesis but needs the error specified). Unresolved.
-2. **Framing fork:** extend the supervisor's low-rank/attractor model vs develop the independent dopamine mechanism. **Unresolved with the supervisor.** This affects how the contribution is framed and whether Yaghoubi & Echeveste are central or peripheral. If a writing decision depends on it, stop and tell me.
 
 ## Knowledge files in this project
 - `PROJECT_SYNTHESIS.md` — settled vision, mechanism, protocol, roadmap (primary source of truth for content).

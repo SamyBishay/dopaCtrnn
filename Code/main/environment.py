@@ -1,4 +1,4 @@
-"""DNMTP T-maze with free navigation — non-trivial working memory task.
+"""DNMTP T-maze with free navigation — working memory task.
 
 The agent navigates freely throughout all phases. Arm identity must be held
 in recurrent hidden state across the delay; it cannot be read from the

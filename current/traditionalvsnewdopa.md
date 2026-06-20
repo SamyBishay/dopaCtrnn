@@ -17,12 +17,12 @@ Anchored to [[yaghoubi2026]] (comprehensive review) and [[lloyd_tamping_2015]] (
 
 ### Limitations: What It Cannot Explain
 
-| Phenomenon | Failure Mode | References |
-|---|---|---|
-| **Reversibility & dormancy** | Classical learning is cumulative; cannot account for rapid extinction or dormant memory reactivation | [[villet2025]] |
+| Phenomenon                   | Failure Mode                                                                                                             | References                                            |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------- |
+| **Reversibility & dormancy** | Classical learning is cumulative; cannot account for rapid extinction or dormant memory reactivation                     | [[villet2025]]                                        |
 | **Online cognitive effects** | Does not predict how dopamine modulates working memory, attention, or cognitive flexibility in real-time decision-making | [[westbrook_striatal_2025]], [[cools_chemistry_2019]] |
-| **Framing dependence** | Reward prediction error should be frame-invariant; empirically, dopamine responses shift with task framing and context | [[lloyd_reframing_2023]] |
-| **Value-free teaching** | Cannot explain dopamine's role in driving behavior when no explicit value signal is present | [[greenstreet_dopaminergic_2025]] |
+| **Framing dependence**       | Reward prediction error should be frame-invariant; empirically, dopamine responses shift with task framing and context   | [[lloyd_reframing_2023]]                              |
+| **Value-free teaching**      | Cannot explain dopamine's role in driving behavior when no explicit value signal is present                              | [[greenstreet_dopaminergic_2025]]                     |
 
 ---
 
