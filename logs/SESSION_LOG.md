@@ -106,3 +106,13 @@ Commit: 5e329ea
 - Result v5 run: model learns — comb/hab/gd all hit 1.00 at ep 21760 (delay=6); curriculum advanced to delay=10 by ep 32000
 - w_GD: 0.80 → 0.38 (handoff happening as designed)
 - Next: more episodes (60k+) needed to train through delay=10+
+
+## 2026-06-20 — viz: step-by-step playback + heatmap overlay
+Commit: –
+
+- Rewrote make_viz.py: step slider + play/pause per panel (every timestep visible)
+- Heatmap overlay (visit-frequency per cell) replaces overlapping line overlay
+- w_GD timeline needle synced to step slider
+- Two-panel layout by sample side preserved; fixed duplicate const{L,R} JS bug
+- Ran seed=0 experiment: H1 acc=1.00 (p=9e-302), H6 decoder=1.00, H5 DA-rise FAIL
+- Delay curriculum reached 10; ckpt_maint at delay 8-9
