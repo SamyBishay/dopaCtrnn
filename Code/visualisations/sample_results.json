@@ -1,0 +1,177 @@
+{
+  "seed": 0,
+  "untrained": false,
+  "config": {
+    "len_edge": 7,
+    "difficulty": 0,
+    "sig_val": 0.25,
+    "delay_start": 5,
+    "delay_max": 15,
+    "delay_advance_acc": 0.75,
+    "delay_advance_evals": 3,
+    "max_episode_steps": 80,
+    "test_reward": 1.0,
+    "step_cost": 0.02,
+    "wait_cost": 0.02,
+    "junction_bonus": 0.3,
+    "arm_end_bonus": 0.2,
+    "completion_bonus": 0.1,
+    "n_actions": 5,
+    "obs_dim": 6,
+    "obs_dim_hab": 4,
+    "n_gd": 256,
+    "n_hab": 256,
+    "hab_rank": 0,
+    "dt": 1.0,
+    "tau_fast": 2.0,
+    "tau_slow": 25.0,
+    "tonic_kappa": 0.1,
+    "gain_base": 0.5,
+    "gain_da": 0.5,
+    "wgd_alpha": 6.0,
+    "wgd_bias": -2.0,
+    "episodes": 512,
+    "gamma": 0.95,
+    "gae_lambda": 0.95,
+    "ret_norm": true,
+    "ret_norm_window": 10000,
+    "lr_gd": 0.0003,
+    "lr_hab": 0.0003,
+    "entropy_beta": 0.05,
+    "value_coef": 0.5,
+    "da_cost_lambda": 0.02,
+    "da_warmup": 8000,
+    "da_ramp": 8000,
+    "grad_clip": 1.0,
+    "ape_weight": 1.0,
+    "eff_weight": 0.1,
+    "ape_decay": false,
+    "ape_decay_margin": 0.05,
+    "ape_decay_rate": 2.0,
+    "ape_min_scale": 0.1,
+    "ckpt_every": 0,
+    "ckpt_path": "",
+    "eval_every": 100,
+    "eval_trials": 200,
+    "final_trials": 1000,
+    "attractor_trials": 300,
+    "traj_log_every": 50,
+    "traj_eval_trials": 60,
+    "learn_combined_min": 0.6,
+    "learn_habsolo_max": 0.6,
+    "maint_solo_min": 0.8,
+    "da_request_training": "a2c_coupled",
+    "batch_size": 128,
+    "seed": 0,
+    "device": "cpu"
+  },
+  "h1": {
+    "accuracy": 0.0,
+    "k": 0,
+    "n": 1000,
+    "p_value": 1.0,
+    "ci95": [
+      0.0,
+      1.0
+    ],
+    "pass": false
+  },
+  "logs": {
+    "episode": [
+      128,
+      256,
+      384,
+      512
+    ],
+    "combined_acc": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "hab_solo_acc": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "gd_solo_acc": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "w_gd": [
+      0.7765145413577557,
+      0.7648911001272498,
+      0.76073267608881,
+      0.7550831846892834
+    ],
+    "da_recruit": [
+      0.541296111047268,
+      0.5304488209870954,
+      0.5264629594981669,
+      0.5213798835873602
+    ],
+    "delay": [
+      5,
+      5,
+      5,
+      5
+    ]
+  },
+  "h2": {
+    "hab_onset_episode": null,
+    "wgd_drop_onset_episode": null,
+    "wgd_peak": 0.7765145413577557,
+    "wgd_final": 0.7550831846892834,
+    "combined_final": 0.0,
+    "pass": false
+  },
+  "h3": {
+    "learning": {
+      "before": 0.0,
+      "after": 0.0,
+      "drop": 0.0
+    },
+    "maintenance": {
+      "before": 0.0,
+      "after": 0.0,
+      "drop": 0.0
+    },
+    "dissociation_pass": false
+  },
+  "h4": {
+    "learning": {
+      "gd": 0.0,
+      "hab": 0.0,
+      "both": 0.0,
+      "intact": 0.0
+    },
+    "maintenance": {
+      "gd": 0.0,
+      "hab": 0.0,
+      "both": 0.0,
+      "intact": 0.0
+    }
+  },
+  "h5": {
+    "da_request_intact": 0.5213798835873602,
+    "da_request_hab_silenced": 0.5213798835873602,
+    "da_request_delta": 0.0,
+    "acc_intact": 0.0,
+    "acc_hab_silenced": 0.0,
+    "deval_sensitivity_silenced": 0.0,
+    "pass": false,
+    "note": "DA-request did NOT rise -> handoff is a schedule in disguise; report as a NEGATIVE result."
+  },
+  "h6": {
+    "pca_coords": [],
+    "labels": [],
+    "decoder_acc": 0.0,
+    "decoder_sd": 0.0,
+    "participation_ratio": 0.0,
+    "pass": false,
+    "note": "Too few delay states collected (0); model may not reach delay phase."
+  }
+}

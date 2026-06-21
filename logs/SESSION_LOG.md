@@ -151,3 +151,11 @@ Commit: 5d839e11e8d9d738d390b31f792b2f57e3c6c480
 - Ingested user fixes from files(3).zip into Code/main/ (environment, config, train, analysis, model, run_experiment): TMazeVecEnv batched env, parametric len_edge/difficulty grid, optional low-rank habit, GAE+return-norm, APE-decay, resumable checkpoints. TMazeFreeNav kept as wrapper.
 - Committed the 6 files and pushed allo-ego (new upstream). Untracked tests/ left out: 117 failures are stale tests vs the new API (e.g. HabNet fed 6D not 4D), not regressions; 358 pass, all 6 files compile.
 - Saved memory: escape whitespace in Bash paths instead of quoting.
+
+## 2026-06-21 — archive planning docs, test suite, new visualiser
+Commit: 4e2bcbfa5ecfa09ca91668a92d330518d3dd3f09
+
+- Archived superseded planning docs (PROJECT_STATUS_AND_PLAN, project overview, lit-search) into archive/ (was arcihve — typo now corrected)
+- Added IMPLEMENTATION_ROADMAP.md (v2 plan) and full test suite under Code/main/tests/ covering env, model, train, analysis, H1–H6
+- Added current/ working notes (comp-neur currents, mémoire intro/methods/future outline)
+- Replaced Code/visualisations/ Python scripts (make_viz.py + Stage-1 code copies) with standalone HTML visualiser (visualiser.html) + sample data files

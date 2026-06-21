@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dual-system T-maze — experiment visualiser</title>
+<style>
+  :root{
+    --bg:#0e1117; --panel:#161b22; --panel2:#1c2230; --ink:#e6edf3; --mut:#8b949e;
+    --line:#30363d; --accent:#58a6ff; --gd:#d2691e; --hab:#3fb950; --warn:#f85149;
+    --presample:#6e7681; --sample:#58a6ff; --delay:#bc8cff; --choice:#f0a35e;
+    --ok:#3fb950; --bad:#f85149;
+    --r:10px; --mono:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.5}
+  header{padding:18px 22px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  header h1{font-size:17px;margin:0;font-weight:650}
+  header .meta{color:var(--mut);font-family:var(--mono);font-size:12px}
+  main{max-width:1180px;margin:0 auto;padding:22px;display:flex;flex-direction:column;gap:22px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px}
+  .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin:0 0 14px;font-weight:650}
+  #drop{border:1.5px dashed var(--line);border-radius:var(--r);padding:34px;text-align:center;color:var(--mut);cursor:pointer;transition:.15s}
+  #drop.hover{border-color:var(--accent);color:var(--ink);background:var(--panel2)}
+  #drop b{color:var(--ink)}
+  #drop input{display:none}
+  .hint{font-size:12px;color:var(--mut);margin-top:8px}
+  .chartwrap{position:relative}
+  svg{display:block;width:100%;height:auto;font-family:var(--mono);font-size:11px}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;margin-top:8px;font-family:var(--mono);font-size:12px}
+  .legend span{display:inline-flex;align-items:center;gap:6px;color:var(--mut)}
+  .swatch{width:14px;height:3px;border-radius:2px;display:inline-block}
+  .dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+  .player{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start}
+  .mazebox{flex:0 0 auto}
+  .controls{display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap}
+  button{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:7px 12px;cursor:pointer;font-size:13px;font-family:var(--sans)}
+  button:hover{border-color:var(--accent)}
+  button:disabled{opacity:.4;cursor:default}
+  button.primary{background:var(--accent);color:#06131f;border-color:var(--accent);font-weight:600}
+  input[type=range]{flex:1;min-width:160px;accent-color:var(--accent)}
+  select{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:7px 10px;font-size:13px}
+  .pill{font-family:var(--mono);font-size:12px;padding:3px 9px;border-radius:20px;border:1px solid var(--line)}
+  .pill.ok{color:var(--ok);border-color:var(--ok)}
+  .pill.bad{color:var(--bad);border-color:var(--bad)}
+  .sidebar{flex:1;min-width:260px;display:flex;flex-direction:column;gap:14px}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:5px 14px;font-family:var(--mono);font-size:12.5px}
+  .kv dt{color:var(--mut)}
+  .kv dd{margin:0;text-align:right}
+  .strip{height:46px;width:100%;border:1px solid var(--line);border-radius:7px;background:var(--panel2)}
+  .phasekey{display:flex;gap:14px;flex-wrap:wrap;font-family:var(--mono);font-size:11.5px;margin-top:6px}
+  .phasekey span{display:inline-flex;align-items:center;gap:5px;color:var(--mut)}
+  details{border:1px solid var(--line);border-radius:var(--r);background:var(--panel)}
+  details summary{padding:14px 18px;cursor:pointer;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);font-weight:650}
+  details .body{padding:0 18px 18px}
+  .empty{color:var(--mut);text-align:center;padding:40px;font-style:italic}
+  code{font-family:var(--mono);background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
+  .tabbtn{background:none;border:none;border-bottom:2px solid transparent;border-radius:0;padding:6px 4px;color:var(--mut)}
+  .tabbtn.active{color:var(--ink);border-bottom-color:var(--accent)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Dual-system T-maze</h1>
+  <span class="meta" id="hdrmeta">no data loaded</span>
+</header>
+
+<main>
+  <div class="card" id="loadcard">
+    <h2>Load run</h2>
+    <label id="drop">
+      <input type="file" id="file" multiple accept=".json">
+      Drop <b>trajectories.json</b> (and optionally <b>results.json</b>) here, or click to choose.
+      <div class="hint">trajectories.json drives the maze player. results.json adds the across-training handoff chart.</div>
+    </label>
+  </div>
+
+  <div class="card" id="handoffcard" style="display:none">
+    <h2>The handoff — control transfer across training</h2>
+    <div class="chartwrap">
+      <svg id="handoff" viewBox="0 0 900 340" preserveAspectRatio="xMidYMid meet"></svg>
+    </div>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--hab)"></span>habitual-solo accuracy</span>
+      <span><span class="swatch" style="background:var(--accent)"></span>combined accuracy</span>
+      <span><span class="swatch" style="background:var(--gd);height:0;border-top:2px dashed var(--gd)"></span>goal-directed-solo</span>
+      <span><span class="swatch" style="background:var(--warn)"></span>w_GD (GD expression)</span>
+      <span><span class="swatch" style="background:var(--delay)"></span>DA-request</span>
+      <span style="color:var(--ink)">click a point &rarr; load that episode below</span>
+    </div>
+    <p class="hint" id="handoffread"></p>
+  </div>
+
+  <div class="card" id="playercard" style="display:none">
+    <h2>Trial player</h2>
+    <div class="controls" style="margin-top:0;margin-bottom:14px">
+      <button class="tabbtn active" id="tabTrain">training trials</button>
+      <button class="tabbtn" id="tabEval">final-policy (eval) trials</button>
+      <span style="flex:1"></span>
+      <label style="color:var(--mut);font-family:var(--mono);font-size:12px">trial
+        <select id="trialsel"></select>
+      </label>
+    </div>
+
+    <div class="player">
+      <div class="mazebox">
+        <svg id="maze" viewBox="0 0 360 360" width="360" height="360"></svg>
+        <div class="controls">
+          <button id="btnPlay" class="primary">&#9654; play</button>
+          <button id="btnStep">step &#9656;</button>
+          <input type="range" id="scrub" min="0" max="0" value="0">
+          <span class="pill" id="stepcount">0 / 0</span>
+        </div>
+        <svg id="wstrip" class="strip" viewBox="0 0 360 46" preserveAspectRatio="none"></svg>
+        <div class="phasekey">
+          <span><span class="dot" style="background:var(--presample)"></span>pre-sample</span>
+          <span><span class="dot" style="background:var(--sample)"></span>sample</span>
+          <span><span class="dot" style="background:var(--delay)"></span>delay</span>
+          <span><span class="dot" style="background:var(--choice)"></span>choice</span>
+        </div>
+      </div>
+
+      <div class="sidebar">
+        <div class="card" style="padding:14px"><dl class="kv" id="trialkv"></dl></div>
+        <div class="card" style="padding:14px"><dl class="kv" id="stepkv"></dl></div>
+        <p class="hint" id="rulenote"></p>
+      </div>
+    </div>
+  </div>
+
+  <details id="figcard" style="display:none">
+    <summary>Static figures (from the analysis pipeline)</summary>
+    <div class="body">
+      <p class="hint">Drop the <code>fig*.png</code> files from the run's output folder to view them here.</p>
+      <label id="figdrop" class="hint" style="display:block;border:1px dashed var(--line);border-radius:8px;padding:18px;text-align:center;cursor:pointer">
+        <input type="file" id="figfile" multiple accept=".png" style="display:none">
+        drop figures here
+      </label>
+      <div id="figs" style="display:flex;flex-wrap:wrap;gap:14px;margin-top:14px"></div>
+    </div>
+  </details>
+
+  <div class="empty" id="noState">Load a run to begin.</div>
+</main>
+
+<script>
+"use strict";
+const S = { traj:null, logs:null, mode:"train", trial:0, step:0, playing:false, timer:null, geom:null };
+
+const drop = document.getElementById("drop");
+const fileInput = document.getElementById("file");
+drop.addEventListener("click", ()=>fileInput.click());
+["dragover","dragenter"].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add("hover");}));
+["dragleave","drop"].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove("hover");}));
+drop.addEventListener("drop", ev=>handleFiles(ev.dataTransfer.files));
+fileInput.addEventListener("change", ()=>handleFiles(fileInput.files));
+
+function handleFiles(files){
+  [...files].forEach(f=>{
+    const r = new FileReader();
+    r.onload = ()=>{
+      let j; try{ j = JSON.parse(r.result); }catch(e){ alert("Could not parse "+f.name); return; }
+      if (j && j.maze && (j.train || j.eval)) { S.traj = j; }
+      else if (j && j.logs) { S.logs = j.logs; }
+      else if (j && j.episode && j.combined_acc) { S.logs = j; }
+      else { alert(f.name+": unrecognised JSON (need trajectories.json or results.json)"); return; }
+      boot();
+    };
+    r.readAsText(f);
+  });
+}
+
+function boot(){
+  if(!S.traj) return;
+  document.getElementById("noState").style.display="none";
+  document.getElementById("loadcard").style.display="none";
+  document.getElementById("playercard").style.display="";
+  document.getElementById("figcard").style.display="";
+  S.geom = computeGeom(S.traj.maze);
+  const m=S.traj;
+  document.getElementById("hdrmeta").textContent =
+    "seed "+m.seed+" \u00b7 "+(m.untrained?"UNTRAINED":"trained")+" \u00b7 grid "+m.maze.rows+"\u00d7"+m.maze.cols+" \u00b7 "+
+    (m.train||[]).length+" train \u00b7 "+(m.eval||[]).length+" eval trials";
+  if(S.logs){ document.getElementById("handoffcard").style.display=""; drawHandoff(); }
+  setMode(S.mode, true);
+}
+
+function computeGeom(maze){
+  const cells = maze.passable;
+  let rmin=1e9,rmax=-1e9,cmin=1e9,cmax=-1e9;
+  cells.forEach(([r,c])=>{rmin=Math.min(rmin,r);rmax=Math.max(rmax,r);cmin=Math.min(cmin,c);cmax=Math.max(cmax,c);});
+  const nrows=rmax-rmin+1, ncols=cmax-cmin+1;
+  const VB=360, pad=18;
+  const cell=Math.floor(Math.min((VB-2*pad)/ncols,(VB-2*pad)/nrows));
+  const w=ncols*cell, h=nrows*cell;
+  const ox=(VB-w)/2, oy=(VB-h)/2;
+  const passSet=new Set(cells.map(([r,c])=>r+","+c));
+  const xy=(r,c)=>({x:ox+(c-cmin)*cell+cell/2, y:oy+(r-rmin)*cell+cell/2});
+  return {rmin,cmin,nrows,ncols,cell,ox,oy,VB,passSet,xy,
+          start:maze.start,junction:maze.junction,l_end:maze.l_end,r_end:maze.r_end};
+}
+
+const PHASE_COLOR={pre_sample:"var(--presample)",sample:"var(--sample)",delay:"var(--delay)",choice:"var(--choice)"};
+const SVGNS="http://www.w3.org/2000/svg";
+function el(tag,attrs){const e=document.createElementNS(SVGNS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);return e;}
+function curTrial(){ const arr=S.mode==="train"?S.traj.train:S.traj.eval; return arr&&arr[S.trial]; }
+function phaseAt(t,i){ if(t.phase && i<t.phase.length) return t.phase[i]; return null; }
+
+function drawMazeBase(){
+  const g=S.geom, svg=document.getElementById("maze");
+  svg.innerHTML="";
+  for(let r=g.rmin;r<g.rmin+g.nrows;r++)for(let c=g.cmin;c<g.cmin+g.ncols;c++){
+    if(!g.passSet.has(r+","+c)) continue;
+    const x=g.ox+(c-g.cmin)*g.cell, y=g.oy+(r-g.rmin)*g.cell;
+    svg.appendChild(el("rect",{x,y,width:g.cell,height:g.cell,rx:3,fill:"#222b38",stroke:"#2f3a4b","stroke-width":1}));
+  }
+  svg.appendChild(el("g",{id:"layer-blocked"}));
+  svg.appendChild(el("g",{id:"layer-target"}));
+  svg.appendChild(el("g",{id:"layer-path"}));
+  svg.appendChild(el("g",{id:"layer-agent"}));
+  const lab=(cell,txt,col)=>{const p=g.xy(cell[0],cell[1]);
+    const t=el("text",{x:p.x,y:p.y+3,"text-anchor":"middle",fill:col,"font-size":10,"font-weight":700});
+    t.textContent=txt; svg.appendChild(t);};
+  lab(g.start,"S","var(--mut)"); lab(g.l_end,"L","var(--mut)"); lab(g.r_end,"R","var(--mut)");
+}
+
+function renderStep(){
+  const t=curTrial(); if(!t) return;
+  const g=S.geom;
+  const nSteps=t.w.length, nPos=t.pos.length;
+  S.step=Math.max(0,Math.min(S.step,nSteps));
+  const blockedEnd = t.blocked==="L"?g.l_end:g.r_end;
+  const Lblocked = t.blocked==="L";
+  const bl=document.getElementById("layer-blocked"); bl.innerHTML="";
+  const armRow=g.junction[0], cx=g.junction[1];
+  for(let c=g.cmin;c<g.cmin+g.ncols;c++){
+    if(!g.passSet.has(armRow+","+c)) continue;
+    const onBlocked = Lblocked ? c<cx : c>cx;
+    if(onBlocked && c!==cx){
+      const x=g.ox+(c-g.cmin)*g.cell, y=g.oy+(armRow-g.rmin)*g.cell;
+      bl.appendChild(el("rect",{x,y,width:g.cell,height:g.cell,rx:3,
+        fill:"rgba(248,81,73,0.10)",stroke:"rgba(248,81,73,0.35)","stroke-width":1}));
+    }
+  }
+  const tg=document.getElementById("layer-target"); tg.innerHTML="";
+  const tp=g.xy(blockedEnd[0],blockedEnd[1]);
+  tg.appendChild(el("circle",{cx:tp.x,cy:tp.y,r:g.cell*0.40,fill:"none",stroke:"var(--ok)","stroke-width":2,"stroke-dasharray":"3 3"}));
+  const pl=document.getElementById("layer-path"); pl.innerHTML="";
+  const upto=Math.min(S.step,nPos-1);
+  for(let i=0;i<upto;i++){
+    const a=t.pos[i], b=t.pos[i+1];
+    const pa=g.xy(a[0],a[1]), pb=g.xy(b[0],b[1]);
+    const ph = phaseAt(t,i);
+    const col = ph? PHASE_COLOR[ph] : "var(--accent)";
+    pl.appendChild(el("line",{x1:pa.x,y1:pa.y,x2:pb.x,y2:pb.y,stroke:col,"stroke-width":3,"stroke-linecap":"round",opacity:0.85}));
+  }
+  const ag=document.getElementById("layer-agent"); ag.innerHTML="";
+  const posIdx=Math.min(S.step,nPos-1);
+  const ap=g.xy(t.pos[posIdx][0],t.pos[posIdx][1]);
+  ag.appendChild(el("circle",{cx:ap.x,cy:ap.y,r:g.cell*0.28,fill:"var(--accent)",stroke:"#06131f","stroke-width":2}));
+  const scrub=document.getElementById("scrub");
+  scrub.max=nSteps; scrub.value=S.step;
+  document.getElementById("stepcount").textContent=S.step+" / "+nSteps;
+  renderWStrip(t); renderStepKV(t);
+}
+
+function renderWStrip(t){
+  const svg=document.getElementById("wstrip"); svg.innerHTML="";
+  const W=360,H=46,n=t.w.length; if(n===0) return;
+  const bw=W/n;
+  for(let i=0;i<n;i++){
+    const ph=phaseAt(t,i);
+    if(ph){ svg.appendChild(el("rect",{x:i*bw,y:0,width:bw,height:H,fill:PHASE_COLOR[ph],opacity:0.12})); }
+    const wv=t.w[i];
+    svg.appendChild(el("rect",{x:i*bw,y:H-wv*H,width:Math.max(bw,0.6),height:wv*H,fill:"var(--warn)",opacity:0.9}));
+  }
+  const x=Math.min(S.step,n)*bw;
+  svg.appendChild(el("line",{x1:x,y1:0,x2:x,y2:H,stroke:"var(--ink)","stroke-width":1.5}));
+  const lab=el("text",{x:4,y:11,fill:"var(--mut)","font-size":9}); lab.textContent="w_GD"; svg.appendChild(lab);
+}
+
+const ACTION_NAMES=["N","S","E","W","WAIT"];
+function renderTrialKV(){
+  const t=curTrial(); if(!t) return;
+  const kv=document.getElementById("trialkv");
+  const corr=t.correct;
+  const epi = (S.mode==="train" && t.episode!=null)?"<dt>episode</dt><dd>"+t.episode+"</dd>":"";
+  kv.innerHTML = epi+
+    "<dt>blocked arm</dt><dd>"+t.blocked+" (sampled "+(t.blocked==="L"?"R":"L")+")</dd>"+
+    "<dt>correct target</dt><dd>"+t.blocked+" end</dd>"+
+    "<dt>outcome</dt><dd><span class='pill "+(corr?"ok":"bad")+"'>"+(corr?"CORRECT":"incorrect")+"</span></dd>"+
+    "<dt>length</dt><dd>"+t.w.length+" steps</dd>"+
+    "<dt>mean w_GD</dt><dd>"+mean(t.w).toFixed(3)+"</dd>";
+}
+function renderStepKV(t){
+  const kv=document.getElementById("stepkv");
+  const i=Math.min(S.step, t.w.length-1);
+  if(i<0){kv.innerHTML="";return;}
+  const ph = phaseAt(t,i);
+  const act = (t.a && i<t.a.length)? ACTION_NAMES[t.a[i]] : "\u2014";
+  const pos = t.pos[Math.min(S.step,t.pos.length-1)];
+  kv.innerHTML =
+    "<dt>step</dt><dd>"+S.step+"</dd>"+
+    "<dt>phase</dt><dd>"+(ph?ph:"(eval \u2014 n/a)")+"</dd>"+
+    "<dt>position</dt><dd>("+pos[0]+", "+pos[1]+")</dd>"+
+    "<dt>action</dt><dd>"+act+"</dd>"+
+    "<dt>w_GD</dt><dd>"+(i<t.w.length?t.w[i].toFixed(3):"\u2014")+"</dd>";
+}
+
+function drawHandoff(){
+  const lg=S.logs, svg=document.getElementById("handoff");
+  svg.innerHTML="";
+  const W=900,H=340,mL=52,mR=52,mT=18,mB=42;
+  const ep=lg.episode, n=ep.length; if(n===0){return;}
+  const xmax=ep[n-1], xmin=ep[0];
+  const X=e=> mL + (W-mL-mR)*((e-xmin)/Math.max(1,(xmax-xmin)));
+  const Yacc=v=> (H-mB) - (H-mB-mT)*v;
+  svg.appendChild(el("line",{x1:mL,y1:H-mB,x2:W-mR,y2:H-mB,stroke:"var(--line)"}));
+  svg.appendChild(el("line",{x1:mL,y1:mT,x2:mL,y2:H-mB,stroke:"var(--line)"}));
+  [0,0.25,0.5,0.75,1].forEach(v=>{
+    const y=Yacc(v);
+    svg.appendChild(el("line",{x1:mL,y1:y,x2:W-mR,y2:y,stroke:"var(--line)","stroke-dasharray":"2 4",opacity:0.5}));
+    const tx=el("text",{x:mL-8,y:y+3,"text-anchor":"end",fill:"var(--mut)"}); tx.textContent=v.toFixed(2); svg.appendChild(tx);
+  });
+  svg.appendChild(el("line",{x1:mL,y1:Yacc(0.5),x2:W-mR,y2:Yacc(0.5),stroke:"var(--mut)","stroke-dasharray":"5 5",opacity:0.6}));
+  const nt=Math.min(6,n);
+  for(let k=0;k<nt;k++){
+    const e=xmin+(xmax-xmin)*k/(nt-1||1), x=X(e);
+    const tx=el("text",{x,y:H-mB+16,"text-anchor":"middle",fill:"var(--mut)"}); tx.textContent=Math.round(e); svg.appendChild(tx);
+  }
+  const xlab=el("text",{x:(mL+W-mR)/2,y:H-6,"text-anchor":"middle",fill:"var(--mut)"}); xlab.textContent="training episode"; svg.appendChild(xlab);
+  const series=(arr,col,dash)=>{
+    if(!arr) return; let d="";
+    for(let i=0;i<n;i++){ d+=(i?"L":"M")+X(ep[i])+","+Yacc(arr[i]); }
+    const p=el("path",{d,fill:"none",stroke:col,"stroke-width":2});
+    if(dash)p.setAttribute("stroke-dasharray",dash);
+    svg.appendChild(p);
+  };
+  series(lg.hab_solo_acc,"var(--hab)");
+  series(lg.combined_acc,"var(--accent)");
+  series(lg.gd_solo_acc,"var(--gd)","5 4");
+  series(lg.w_gd,"var(--warn)");
+  series(lg.da_recruit,"var(--delay)");
+  const trainEps=(S.traj.train||[]).map(t=>t.episode);
+  for(let i=0;i<n;i++){
+    const cx=X(ep[i]), cy=Yacc(lg.combined_acc[i]);
+    const c=el("circle",{cx,cy,r:4,fill:"var(--accent)",opacity:0.55,style:"cursor:pointer"});
+    c.addEventListener("click",()=>{
+      if(!trainEps.length){return;}
+      let best=0,bd=1e9;
+      trainEps.forEach((te,k)=>{const d=Math.abs(te-ep[i]); if(d<bd){bd=d;best=k;}});
+      setMode("train",false); selectTrial(best);
+      document.getElementById("playercard").scrollIntoView({behavior:"smooth",block:"start"});
+    });
+    const ttl=el("title");
+    ttl.textContent="ep "+ep[i]+" \u00b7 combined "+lg.combined_acc[i].toFixed(2)+" \u00b7 hab-solo "+lg.hab_solo_acc[i].toFixed(2)+" \u00b7 w_GD "+lg.w_gd[i].toFixed(2);
+    c.appendChild(ttl); svg.appendChild(c);
+  }
+  const habOnset = firstCross(lg.hab_solo_acc, 0.8, ep);
+  const wPeak = Math.max.apply(null, lg.w_gd);
+  const wDrop = firstBelow(lg.w_gd, 0.5*wPeak, ep, true);
+  let msg="";
+  if(habOnset!=null && wDrop!=null){
+    msg = "Habitual-solo crosses 0.80 at ep "+habOnset+"; w_GD falls below half its peak at ep "+wDrop+". "+
+          (wDrop>=habOnset? "Order is consistent with a competence-locked handoff (H2)."
+                          : "w_GD drops before habitual competence \u2014 inconsistent with H2; inspect.");
+  } else { msg = "Handoff markers not reached in this run (need longer training / higher accuracy)."; }
+  document.getElementById("handoffread").textContent = msg;
+}
+function firstCross(arr,thr,ep){ if(!arr)return null; for(let i=0;i<arr.length;i++)if(arr[i]>=thr)return ep[i]; return null; }
+function firstBelow(arr,thr,ep,afterPeak){ if(!arr)return null; let started=!afterPeak,pk=-1;
+  for(let i=0;i<arr.length;i++){ if(arr[i]>=pk)pk=arr[i]; if(afterPeak&&arr[i]>=0.99*pk)started=true; if(started&&arr[i]<thr)return ep[i];} return null; }
+
+function setMode(mode,initial){
+  S.mode=mode; S.trial=0; S.step=0; stop();
+  document.getElementById("tabTrain").classList.toggle("active",mode==="train");
+  document.getElementById("tabEval").classList.toggle("active",mode==="eval");
+  const arr=mode==="train"?S.traj.train:S.traj.eval;
+  const sel=document.getElementById("trialsel"); sel.innerHTML="";
+  (arr||[]).forEach((t,i)=>{
+    const o=document.createElement("option"); o.value=i;
+    const tag = mode==="train"&&t.episode!=null?"ep "+t.episode:"#"+i;
+    o.textContent=tag+" \u00b7 blk "+t.blocked+" \u00b7 "+(t.correct?"\u2713":"\u2717");
+    sel.appendChild(o);
+  });
+  const note=document.getElementById("rulenote");
+  note.innerHTML = "<b>Rule:</b> non-match. The agent samples the open arm, holds it through the delay, "+
+    "then must reach the <b>opposite</b> (blocked) arm \u2014 circled in green. "+
+    (mode==="eval"?"Eval trials have no phase log; path is single-colour and phase reads n/a.":
+                   "Path colour shows the task phase at each step.");
+  drawMazeBase(); selectTrial(0);
+}
+function selectTrial(i){
+  S.trial=i; S.step=0; stop();
+  document.getElementById("trialsel").value=i;
+  drawMazeBase(); renderTrialKV(); renderStep();
+}
+document.getElementById("trialsel").addEventListener("change",e=>selectTrial(+e.target.value));
+document.getElementById("tabTrain").addEventListener("click",()=>setMode("train",false));
+document.getElementById("tabEval").addEventListener("click",()=>setMode("eval",false));
+document.getElementById("scrub").addEventListener("input",e=>{S.step=+e.target.value;stop();renderStep();});
+document.getElementById("btnStep").addEventListener("click",()=>{const t=curTrial();if(!t)return;S.step=Math.min(S.step+1,t.w.length);renderStep();});
+document.getElementById("btnPlay").addEventListener("click",togglePlay);
+
+function togglePlay(){ S.playing?stop():play(); }
+function play(){
+  const t=curTrial(); if(!t)return;
+  S.playing=true; document.getElementById("btnPlay").innerHTML="&#10074;&#10074; pause";
+  if(S.step>=t.w.length)S.step=0;
+  S.timer=setInterval(()=>{
+    const tt=curTrial();
+    if(S.step>=tt.w.length){stop();return;}
+    S.step++; renderStep();
+  },180);
+}
+function stop(){ S.playing=false; clearInterval(S.timer);
+  const b=document.getElementById("btnPlay"); if(b)b.innerHTML="&#9654; play"; }
+
+const figdrop=document.getElementById("figdrop"), figfile=document.getElementById("figfile");
+figdrop.addEventListener("click",()=>figfile.click());
+figfile.addEventListener("change",()=>addFigs(figfile.files));
+["dragover","dragenter"].forEach(e=>figdrop.addEventListener(e,ev=>ev.preventDefault()));
+figdrop.addEventListener("drop",ev=>{ev.preventDefault();addFigs(ev.dataTransfer.files);});
+function addFigs(files){
+  const box=document.getElementById("figs");
+  [...files].forEach(f=>{ if(!f.type.startsWith("image/"))return;
+    const url=URL.createObjectURL(f);
+    const fig=document.createElement("figure"); fig.style.margin="0"; fig.style.flex="1"; fig.style.minWidth="300px";
+    const im=document.createElement("img"); im.src=url; im.style.width="100%"; im.style.borderRadius="8px"; im.style.border="1px solid var(--line)";
+    const cap=document.createElement("figcaption"); cap.textContent=f.name; cap.style.color="var(--mut)"; cap.style.fontSize="11px"; cap.style.fontFamily="var(--mono)"; cap.style.marginTop="4px";
+    fig.appendChild(im); fig.appendChild(cap); box.appendChild(fig);
+  });
+}
+
+function mean(a){return a.length? a.reduce((s,x)=>s+x,0)/a.length : 0;}
+</script>
+</body>
+</html>
