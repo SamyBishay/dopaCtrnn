@@ -159,3 +159,11 @@ Commit: 4e2bcbfa5ecfa09ca91668a92d330518d3dd3f09
 - Added IMPLEMENTATION_ROADMAP.md (v2 plan) and full test suite under Code/main/tests/ covering env, model, train, analysis, H1–H6
 - Added current/ working notes (comp-neur currents, mémoire intro/methods/future outline)
 - Replaced Code/visualisations/ Python scripts (make_viz.py + Stage-1 code copies) with standalone HTML visualiser (visualiser.html) + sample data files
+
+## 2026-06-22 — docs: re-open Stages 2-7 experiments in CLAUDE.md
+Commit: 17f50a32b25679cecb93ba43520ec0954c17cc59
+
+- User decided to resume running experiments despite the 22 June mémoire deadline; lifted the "no new experiments" guardrails in CLAUDE.md
+- Updated the deadline-reality note, the Code/main/ "DONE, do not modify" file-tree comment, and §10 scope-creep guardrails so Stages 2-7 (E2-E5 ladder) are explicitly back in scope when the user asks, while keeping the mémoire deliverables (§4) visible
+- Left other §10 guardrails (citations, lit-verification detours) and the rest of the operating manual untouched — only the experiment-prohibition language changed
+- Committed (17f50a3) and pushed to origin/allo-ego
