@@ -110,12 +110,44 @@ class Config:
     #       specifying that error is the open design decision.
     da_request_training: str = "a2c_coupled"
 
+    # ---- Tier-1 ladder experiment flags (E2–E5) ---------------------------
+
+    # E2: is expression-gating necessary for reversibility?
+    # "expression" (default): w_gd = sigmoid(alpha * da_arbitration + bias), DA-driven.
+    # "scheduled": w_gd follows a fixed ramp set externally via model.scheduled_w;
+    #   da_arbitration is still computed but ignored for gating — controls whether the
+    #   DA mechanism is necessary for the handoff.
+    gate_mode: str = "expression"
+
+    # E3: Naudé decomposition — which DA component matters?
+    # "both" (default): DA modulates expression gain (W_eff) AND w_gd (arbitration).
+    # "gain_only": DA drives w_gd only; expression gain is fixed at gain_base.
+    # "weights_only": DA drives expression gain only; w_gd fixed at 0 (fully habitual).
+    da_components: str = "both"
+
+    # E4: value-free vs value-coupled habit learning rule.
+    # "value_free" (default): habit learns from APE + efficiency only.
+    # "value_coupled": habit also receives an A2C term on task reward (breaks devaluation).
+    habit_rule: str = "value_free"
+
+    # E5: ego/allo split — what observations does the habitual network see?
+    # "position_free" (default): hab sees [0, sig_L, sig_R, sig_choice] (no position).
+    # "allocentric": hab sees the same obs as GD, including x,y position.
+    habit_obs: str = "position_free"
+
     batch_size: int = 128  # parallel environments per training iteration (vectorised BLAS)
                            # 128 amortises Python/env overhead over a large [B x n] matmul:
                            # ~1.7x ep/s vs 32 on an 8-physical-core CPU (BLAS-3 bound).
 
     seed: int    = 0
     device: str  = "cpu"
+
+    def __post_init__(self):
+        # When habit_obs == "allocentric", the habitual net receives the same
+        # observation as the GD net (including position), so obs_dim_hab must
+        # equal obs_dim. Override the default here so HabNet.W_in is sized correctly.
+        if self.habit_obs == "allocentric":
+            self.obs_dim_hab = self.obs_dim
 
     def to_dict(self):
         return asdict(self)

@@ -184,6 +184,19 @@ def _train_batch(model, venv, cfg, opt_gd, opt_hab, da_lambda,
     eff_l   = -((adv_int.detach() * logp_h) * valid_f).sum()
     total_hab = cfg.ape_weight * ape_scale * ce_l + cfg.eff_weight * eff_l
 
+    # E4 (habit_rule="value_coupled"): add an A2C term on task reward for the
+    # habitual net. This makes the habit value-coupled, which should break
+    # devaluation sensitivity (the habit learns *what to do* for reward, not
+    # just *how the combined policy acts*).
+    if getattr(cfg, "habit_rule", "value_free") == "value_coupled":
+        adv_task_h, _ = gae_batch(task_t, val_t.detach(), cfg.gamma,
+                                   cfg.gae_lambda, valid_t)       # [T, B]
+        adv_task_h_n = (adv_task_h - adv_task_h[valid_t].mean()) / \
+                       (adv_task_h[valid_t].std() + 1e-8)
+        logp_h_task  = Categorical(logits=pi_h_t).log_prob(acts_t)  # [T, B]
+        value_coupled_l = -((adv_task_h_n.detach() * logp_h_task) * valid_f).sum()
+        total_hab = total_hab + cfg.value_coef * value_coupled_l
+
     opt_gd.zero_grad(); total_gd.backward(retain_graph=True)
     torch.nn.utils.clip_grad_norm_(model.gd_params(), cfg.grad_clip); opt_gd.step()
     opt_hab.zero_grad(); total_hab.backward()

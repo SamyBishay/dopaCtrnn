@@ -71,7 +71,11 @@ class GDNet(nn.Module):
         # Fast (widen) units track the phasic da_request; slow (deepen) units
         # track the tonic low-pass — the timescale split, not a receptor label.
         da_comp    = self.fast_mask * da_request.unsqueeze(-1) + (1 - self.fast_mask) * da_tonic.unsqueeze(-1)  # [B, n]
-        gain  = self.gain_base + self.gain_da * da_comp
+        # E3 (da_components="gain_only"): suppress DA expression gain; use base gain only.
+        if getattr(self.cfg, "da_components", "both") == "gain_only":
+            gain = self.gain_base
+        else:
+            gain  = self.gain_base + self.gain_da * da_comp
         r_out = gain * torch.tanh(h)                               # [B, n]
         pi    = r_out @ self.W_out.T + self.b_out                  # [B, n_actions]
         value = (h * self.w_v).sum(-1) + self.b_v.squeeze()        # [B]
@@ -139,6 +143,9 @@ class DualSystemModel(nn.Module):
         self.hab  = HabNet(cfg)
         self.alpha = nn.Parameter(torch.tensor(cfg.wgd_alpha))
         self.bias  = nn.Parameter(torch.tensor(cfg.wgd_bias))
+        # E2 (gate_mode="scheduled"): train.py sets this to a float ramp value
+        # each iteration; when None the expression gate is used unconditionally.
+        self.scheduled_w = None
         self.reset_state()
 
     def reset_state(self, batch_size=1):
@@ -176,10 +183,24 @@ class DualSystemModel(nn.Module):
         # gain path; in the tied default this is identical, so no rewire needed.
         # Step 7 will thread da_expression into gd.step explicitly.
 
-        if force_w is None:
-            w_gd = torch.sigmoid(self.alpha * da_arbitration + self.bias)   # [B]
-        else:
+        # E3 (da_components): control which DA path is active.
+        # "weights_only" or any mode that suppresses the gate: w_gd → 0 (fully habitual).
+        # "gain_only": gate is DA-driven; expression gain is suppressed inside GDNet.
+        # "both" (default): both paths active.
+        da_comp_mode = getattr(self.cfg, "da_components", "both")
+        if da_comp_mode == "weights_only":
+            # DA drives expression gain only; arbitration gate is zeroed out.
+            w_gd = torch.zeros_like(da_arbitration)
+        elif force_w is not None:
+            # Caller override (e.g. evaluation with force_w=0.0 or 1.0).
             w_gd = torch.full_like(da_arbitration, float(force_w))
+        else:
+            # E2 (gate_mode): expression gate (default) vs scheduled ramp.
+            gate_mode = getattr(self.cfg, "gate_mode", "expression")
+            if gate_mode == "scheduled" and self.scheduled_w is not None:
+                w_gd = torch.full_like(da_arbitration, float(self.scheduled_w))
+            else:
+                w_gd = torch.sigmoid(self.alpha * da_arbitration + self.bias)  # [B]
 
         w = w_gd.unsqueeze(-1)                                          # [B, 1]
         combined = w * mot * pi_gd + (1.0 - w) * pi_h                  # [B, n_actions]

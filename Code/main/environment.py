@@ -199,6 +199,10 @@ class TMazeVecEnv:
         return o
 
     def obs_hab(self):
+        # E5 (habit_obs="allocentric"): hab sees the same obs as GD (includes position).
+        if getattr(self.cfg, "habit_obs", "position_free") == "allocentric":
+            return self.obs()
+        # Default: position-free [0, sig_L, sig_R, sig_choice]
         o = np.zeros((self.B, OBS_DIM_HAB), dtype=np.float32)
         o[:, 1:4] = self._sig
         return o
