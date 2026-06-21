@@ -133,3 +133,21 @@ Commit: dc16852b6a6703c7189848f178c59da44a22970d
 - fig5: explained variance on PCA axes, system label "Habitual (DLS)", empty-data guard; fig6: jitter + empty-list guard; _save: bbox_inches="tight"
 - analysis.py: h6 now returns explained_variance_ratio; run_experiment.py: passes h2 to fig1, h3 to fig4
 - make_viz.py: fixed w===0 showing "?" bug; fixed off-by-one in path rendering; added training epoch window (all/early/late 30%); untrained banner; w_GD timeline label explains it is an expression weight
+
+## 2026-06-20 — architecture graphs, code-vs-methods diff, and branch split
+Commit: 425d55f701d8c25b3d7097cb8b28f5e2fb4ad17c
+
+- Created current/architectureGraph.md: Mermaid diagrams of DualSystemModel, GDNet, HabNet, T-maze trial flow, training loop, and evaluation pipeline
+- Created current/diffCodeMethods.md: catalogued 12 discrepancies between Code/main/ and the mémoire drafts (D1 CRITICAL: methods claimed 22D/14D allocentric/egocentric split not present in code)
+- Created branch 6D (from main): rewrites methods+intro to match existing code — both systems share identical 6D observation; learning rule and DA profile are the sole asymmetries
+- Created branch allo-ego (from main): implements the split in code (obs_dim_hab=4, env.obs_hab() strips x/y, HabNet W_in resized, train.py and analysis.py pass separate obs2) and updates methods+intro accordingly
+- Both branches pushed to Codeberg; old branch names (fix/methods-6d, feat/ego-split) deleted
+
+## 2026-06-20 — Vectorised env rewrite landed + obs/D1-D2 walkthrough
+Commit: 5d839e11e8d9d738d390b31f792b2f57e3c6c480
+
+- Walked through 6D goal-directed vs 4D habitual obs vectors; confirmed prev-action slot is hard-zeroed in both our code and supervisor (deliberate: forces cue memory into recurrence, not action feedback).
+- Documented the goal-directed double-timescale scheme (D1/phasic+fast-tau vs D2/tonic+slow-tau, aligned at n//2); flagged docstring vs code mismatch — DA gain modulates policy readout, not recurrent W or value.
+- Ingested user fixes from files(3).zip into Code/main/ (environment, config, train, analysis, model, run_experiment): TMazeVecEnv batched env, parametric len_edge/difficulty grid, optional low-rank habit, GAE+return-norm, APE-decay, resumable checkpoints. TMazeFreeNav kept as wrapper.
+- Committed the 6 files and pushed allo-ego (new upstream). Untracked tests/ left out: 117 failures are stale tests vs the new API (e.g. HabNet fed 6D not 4D), not regressions; 358 pass, all 6 files compile.
+- Saved memory: escape whitespace in Bash paths instead of quoting.

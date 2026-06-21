@@ -1,0 +1,210 @@
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+import numpy as np
+import pytest
+
+from config import Config
+from environment import TMazeFreeNav
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def cfg():
+    return Config()
+
+
+@pytest.fixture
+def rng():
+    return np.random.default_rng(42)
+
+
+@pytest.fixture
+def env(cfg, rng):
+    return TMazeFreeNav(cfg, rng)
+
+
+# ---------------------------------------------------------------------------
+# __init__ tests
+# ---------------------------------------------------------------------------
+
+class TestInit:
+    def test_current_delay_equals_delay_start(self, env, cfg):
+        assert env.current_delay == cfg.delay_start
+
+    def test_delay_start_default(self, cfg):
+        assert cfg.delay_start == 5
+
+    def test_reward_scale(self, env):
+        assert env.reward_scale == 1.0
+
+    def test_initial_pos_is_start(self, env):
+        assert env.pos == (2, 2)
+
+    def test_initial_phase(self, env):
+        assert env.phase == "pre_sample"
+
+    def test_initial_done_false(self, env):
+        assert env.done == False
+
+    def test_blocked_is_L_or_R(self, env):
+        assert env.blocked in ("L", "R")
+
+    def test_open_side_is_opposite_of_blocked(self, env):
+        if env.blocked == "L":
+            assert env.open_side == "R"
+        else:
+            assert env.open_side == "L"
+
+    def test_blocked_and_open_side_differ(self, env):
+        assert env.blocked != env.open_side
+
+
+# ---------------------------------------------------------------------------
+# reset() tests
+# ---------------------------------------------------------------------------
+
+class TestReset:
+    def test_reset_returns_numpy_array(self, env):
+        obs = env.reset()
+        assert isinstance(obs, np.ndarray)
+
+    def test_reset_obs_shape(self, env):
+        obs = env.reset()
+        assert obs.shape == (6,)
+
+    def test_reset_obs_dtype(self, env):
+        obs = env.reset()
+        assert obs.dtype == np.float32
+
+    def test_reset_pos(self, env):
+        env.reset()
+        assert env.pos == (2, 2)
+
+    def test_reset_phase(self, env):
+        env.reset()
+        assert env.phase == "pre_sample"
+
+    def test_reset_done(self, env):
+        env.reset()
+        assert env.done == False
+
+    def test_reset_step_count(self, env):
+        env.reset()
+        assert env.step_count == 0
+
+    def test_reset_delay_idx(self, env):
+        env.reset()
+        assert env.delay_idx == 0
+
+    def test_reset_obs_col_norm(self, env):
+        # col=2, COLS=5 → 2/4 = 0.5
+        obs = env.reset()
+        assert obs[0] == pytest.approx(0.5, abs=1e-6)
+
+    def test_reset_obs_row_norm(self, env):
+        # row=2, ROWS=3 → 2/2 = 1.0
+        obs = env.reset()
+        assert obs[1] == pytest.approx(1.0, abs=1e-6)
+
+    def test_reset_obs_dim2_zero(self, env):
+        obs = env.reset()
+        assert obs[2] == pytest.approx(0.0, abs=1e-6)
+
+    def test_reset_obs_sig_L_zero(self, env):
+        obs = env.reset()
+        assert obs[3] == pytest.approx(0.0, abs=1e-6)
+
+    def test_reset_obs_sig_R_zero(self, env):
+        obs = env.reset()
+        assert obs[4] == pytest.approx(0.0, abs=1e-6)
+
+    def test_reset_obs_sig_choice_zero(self, env):
+        obs = env.reset()
+        assert obs[5] == pytest.approx(0.0, abs=1e-6)
+
+    def test_reset_twice_same_shape(self, env):
+        obs1 = env.reset()
+        obs2 = env.reset()
+        assert obs1.shape == obs2.shape
+
+    def test_reset_twice_same_dtype(self, env):
+        obs1 = env.reset()
+        obs2 = env.reset()
+        assert obs1.dtype == obs2.dtype
+
+    def test_reset_twice_first_two_dims_identical(self, env):
+        # position-derived dims are deterministic regardless of blocked side
+        obs1 = env.reset()
+        obs2 = env.reset()
+        assert obs1[0] == pytest.approx(obs2[0], abs=1e-6)
+        assert obs1[1] == pytest.approx(obs2[1], abs=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# advance_delay() tests
+# ---------------------------------------------------------------------------
+
+class TestAdvanceDelay:
+    def test_advance_delay_increments_by_one(self, env, cfg):
+        initial = env.current_delay
+        env.advance_delay()
+        assert env.current_delay == initial + 1
+
+    def test_advance_delay_from_default_start(self, env, cfg):
+        # default delay_start = 5
+        env.advance_delay()
+        assert env.current_delay == cfg.delay_start + 1
+
+    def test_advance_delay_caps_at_delay_max(self, env, cfg):
+        # Advance until we hit delay_max
+        for _ in range(cfg.delay_max + 10):
+            env.advance_delay()
+        assert env.current_delay == cfg.delay_max
+
+    def test_advance_delay_does_not_exceed_delay_max(self, env, cfg):
+        for _ in range(cfg.delay_max + 20):
+            env.advance_delay()
+        assert env.current_delay <= cfg.delay_max
+
+    def test_advance_delay_max_default(self, cfg):
+        assert cfg.delay_max == 15
+
+    def test_advance_delay_one_before_max_reaches_max(self, env, cfg):
+        # Set current_delay to delay_max - 1 manually, then advance once
+        env.current_delay = cfg.delay_max - 1
+        env.advance_delay()
+        assert env.current_delay == cfg.delay_max
+
+    def test_advance_delay_at_max_stays_at_max(self, env, cfg):
+        env.current_delay = cfg.delay_max
+        env.advance_delay()
+        assert env.current_delay == cfg.delay_max
+
+    def test_advance_delay_multiple_steps_below_max(self, env, cfg):
+        # Starting from delay_start=5, advance 3 times → should be delay_start+3
+        steps = 3
+        expected = min(cfg.delay_start + steps, cfg.delay_max)
+        for _ in range(steps):
+            env.advance_delay()
+        assert env.current_delay == expected
+
+
+# ---------------------------------------------------------------------------
+# agent_controlled property tests
+# ---------------------------------------------------------------------------
+
+class TestAgentControlled:
+    def test_agent_controlled_is_true(self, env):
+        assert env.agent_controlled == True
+
+    def test_agent_controlled_after_reset(self, env):
+        env.reset()
+        assert env.agent_controlled == True
+
+    def test_agent_controlled_is_bool(self, env):
+        result = env.agent_controlled
+        assert isinstance(result, bool)
