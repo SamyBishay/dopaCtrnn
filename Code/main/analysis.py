@@ -184,6 +184,39 @@ def h4_lesions(model, state_learn, state_maint, env, cfg):
 
 
 # --------------------------------------------------------------- H5
+def h5_gate_clamp_control(model, state_maint, env, cfg):
+    """Gate-clamp control for H5 / reactivation experiments.
+
+    Forces w_gd=1.0 on the maintenance-phase model (GD acts alone, gate wide open).
+    If the GD policy is preserved, accuracy should remain high (>=0.65).
+    If accuracy collapses, the reactivation claim is an artifact of gate movement,
+    not a preserved policy — report as a negative control failure.
+    """
+    model.load_state_dict(state_maint)
+    # GD solo: gate clamped open, habitual contribution zeroed
+    gd_clamped = evaluate_vec(model, env, cfg, cfg.eval_trials, force_w=1.0)
+    # Combined: let the arbitrator decide (gate not clamped)
+    combined   = evaluate_vec(model, env, cfg, cfg.eval_trials)
+    # Habitual solo: gate clamped shut
+    hab_solo   = evaluate_vec(model, env, cfg, cfg.eval_trials, force_w=0.0)
+
+    policy_preserved = gd_clamped["acc"] >= 0.65
+    return {
+        "acc_gd_clamped":  gd_clamped["acc"],   # GD alone, gate open: key control
+        "acc_combined":    combined["acc"],       # normal operation
+        "acc_hab_solo":    hab_solo["acc"],       # habit alone
+        "w_gd_mean":       combined["w_mean"],    # how far the gate has closed
+        "policy_preserved": policy_preserved,
+        "pass": policy_preserved,
+        "note": (
+            "GD policy preserved: reactivation claim is about gate movement, not re-learning."
+            if policy_preserved else
+            "GD policy NOT preserved at maintenance: reactivation claim cannot be made. "
+            "Report as a negative result — the model did not maintain the GD solution."
+        )
+    }
+
+
 def h5_reactivation(model, state_maint, env, cfg):
     model.load_state_dict(state_maint)
     intact   = evaluate_vec(model, env, cfg, cfg.eval_trials)
@@ -191,6 +224,7 @@ def h5_reactivation(model, state_maint, env, cfg):
     sil_before = silenced["acc"]
     sil_after  = evaluate_vec(model, env, cfg, cfg.eval_trials, lesion="hab", mot=0.0)["acc"]
     da_rise = silenced["da_mean"] - intact["da_mean"]
+    gate_clamp = h5_gate_clamp_control(model, state_maint, env, cfg)
     return {"da_request_intact": intact["da_mean"],
             "da_request_hab_silenced": silenced["da_mean"],
             "da_request_delta": da_rise,
@@ -199,7 +233,8 @@ def h5_reactivation(model, state_maint, env, cfg):
             "pass": da_rise > 0 and silenced["acc"] >= 0.65 and (sil_before - sil_after) > 0.15,
             "note": ("DA-request did NOT rise -> handoff is a schedule in disguise; "
                      "report as a NEGATIVE result." if da_rise <= 0 else
-                     "DA-request rose -> dormant goal-directed solution reactivates.")}
+                     "DA-request rose -> dormant goal-directed solution reactivates."),
+            "gate_clamp_control": gate_clamp}
 
 
 # --------------------------------------------------------------- H6
