@@ -227,7 +227,8 @@ def train(cfg, verbose=True):
     opt_hab = torch.optim.Adam(model.hab_params(), lr=cfg.lr_hab)
 
     logs = {k: [] for k in ("episode", "combined_acc", "hab_solo_acc",
-                             "gd_solo_acc", "w_gd", "da_recruit", "delay")}
+                             "gd_solo_acc", "w_gd", "da_recruit", "delay",
+                             "fixed_delay_acc")}
     ckpt_learn = ckpt_maint = first_state = None
     train_trajs = []
     delay_advance_count = 0
@@ -309,32 +310,51 @@ def train(cfg, verbose=True):
             logs["da_recruit"].append(comb["da_mean"])
             logs["delay"].append(venv.current_delay)
 
+            # Fixed-delay eval (Villet comparison): only meaningful once curriculum
+            # has reached ceiling — below that, the delay itself is still changing.
+            at_ceiling = venv.current_delay >= cfg.delay_max
+            if at_ceiling:
+                fd = evaluate_vec(model, eval_env, cfg, cfg.eval_trials,
+                                  fixed_delay=cfg.fixed_eval_delay)
+                logs["fixed_delay_acc"].append(fd["acc"])
+            else:
+                logs["fixed_delay_acc"].append(None)
+
             if first_state is None:
                 first_state = copy.deepcopy(model.state_dict())
-            if (ckpt_learn is None and comb["acc"] >= cfg.learn_combined_min
+            # Gate checkpoint captures on curriculum ceiling: measuring the handoff
+            # while the delay is still advancing conflates curriculum progress with
+            # the goal-directed→habitual transition (supervisor pattern, line ~1127).
+            if (ckpt_learn is None and at_ceiling
+                    and comb["acc"] >= cfg.learn_combined_min
                     and hab["acc"] <= cfg.learn_habsolo_max):
                 ckpt_learn = copy.deepcopy(model.state_dict())
-            if hab["acc"] >= cfg.maint_solo_min and comb["acc"] >= cfg.maint_solo_min:
+            if (at_ceiling
+                    and hab["acc"] >= cfg.maint_solo_min
+                    and comb["acc"] >= cfg.maint_solo_min):
                 ckpt_maint = copy.deepcopy(model.state_dict())
 
             # Delay curriculum: advance when combined (GD-driven) accuracy is strong.
             # Requiring hab accuracy too blocks the curriculum while habitual is still
             # bootstrapping — supervisor advances on GD-solo threshold only.
-            if comb["acc"] >= cfg.delay_advance_acc:
-                delay_advance_count += 1
-            else:
-                delay_advance_count = 0
-            if delay_advance_count >= cfg.delay_advance_evals:
-                venv.advance_delay()
-                eval_env.advance_delay()
-                delay_advance_count = 0
-                if verbose:
-                    print(f"  -> delay → {venv.current_delay}", flush=True)
+            # Once at ceiling, stop calling advance_delay() — the curriculum is done.
+            if not at_ceiling:
+                if comb["acc"] >= cfg.delay_advance_acc:
+                    delay_advance_count += 1
+                else:
+                    delay_advance_count = 0
+                if delay_advance_count >= cfg.delay_advance_evals:
+                    venv.advance_delay()
+                    eval_env.advance_delay()
+                    delay_advance_count = 0
+                    if verbose:
+                        print(f"  -> delay → {venv.current_delay}", flush=True)
 
             if verbose:
+                fd_str = f" fixedDA {logs['fixed_delay_acc'][-1]:.2f}" if at_ceiling else ""
                 print(f"ep {total_episodes:6d} | comb {comb['acc']:.2f} habSolo {hab['acc']:.2f} "
                       f"gdSolo {gd['acc']:.2f} | w_GD {comb['w_mean']:.2f} "
-                      f"DA {comb['da_mean']:.2f} delay {venv.current_delay}", flush=True)
+                      f"DA {comb['da_mean']:.2f} delay {venv.current_delay}{fd_str}", flush=True)
 
         # ---- resumable checkpoint (atomic write) ----
         if cfg.ckpt_every > 0 and cfg.ckpt_path and total_episodes % cfg.ckpt_every < B:

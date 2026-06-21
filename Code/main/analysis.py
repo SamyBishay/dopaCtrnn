@@ -55,23 +55,36 @@ def eval_trajectories(model, env, cfg, n, greedy=True, **kw):
     return out
 
 
-def evaluate(model, env, cfg, n, **kw):
+def evaluate(model, env, cfg, n, fixed_delay: int = -1, **kw):
+    """Run n rollouts on env. fixed_delay >= 0 pins env.current_delay for the
+    duration of the call (Villet-comparison eval), then restores it."""
+    saved_delay = env.current_delay
+    if fixed_delay >= 0:
+        env.current_delay = fixed_delay
     res = [rollout(model, env, cfg, **kw) for _ in range(n)]
+    env.current_delay = saved_delay
     k = sum(r["correct"] for r in res)
     return {"acc": k / n, "k": k, "n": n,
             "da_mean": float(np.mean([r["da_mean"] for r in res])),
             "w_mean": float(np.mean([r["w_mean"] for r in res]))}
 
 
-def evaluate_vec(model, env, cfg, n, force_w=None, lesion=None, mot=1.0):
+def evaluate_vec(model, env, cfg, n, force_w=None, lesion=None, mot=1.0,
+                 fixed_delay: int = -1):
     """Vectorised evaluation: one TMazeVecEnv steps B trials at once, ceil(n/B)
     batches. All B environments advance in a single C-level NumPy step() — no
-    per-env Python loop — and the forward pass is a single [B x n] matmul."""
+    per-env Python loop — and the forward pass is a single [B x n] matmul.
+
+    fixed_delay: if >= 0, pin the eval delay to this value regardless of the
+    current curriculum position (for Villet-comparison evals at cfg.fixed_eval_delay).
+    The env's current_delay is restored after the call.
+    """
     from environment import TMazeVecEnv
     B = min(cfg.batch_size, n)
     rng = np.random.default_rng(0)
     venv = TMazeVecEnv(cfg, rng, batch_size=B)
-    venv.current_delay = env.current_delay
+    saved_delay = env.current_delay
+    venv.current_delay = fixed_delay if fixed_delay >= 0 else env.current_delay
 
     all_correct, all_da, all_w = [], [], []
     dev = cfg.device
@@ -111,6 +124,8 @@ def evaluate_vec(model, env, cfg, n, force_w=None, lesion=None, mot=1.0):
             all_w.extend((w_sum[:b] / cnt[:b]).tolist())
 
     k = sum(all_correct[:n])
+    # restore env's delay (fixed_delay is a transient pin, not a mutation)
+    env.current_delay = saved_delay
     return {"acc": k / n, "k": k, "n": n,
             "da_mean": float(np.mean(all_da[:n])),
             "w_mean": float(np.mean(all_w[:n]))}

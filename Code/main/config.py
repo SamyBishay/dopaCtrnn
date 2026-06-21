@@ -78,6 +78,10 @@ class Config:
     ckpt_path: str  = ""              # file path for the resumable checkpoint (set by runner)
 
     # ---- evaluation / analysis ----
+    fixed_eval_delay: int = 40  # pinned delay for Villet-comparison eval; resolves DECIDE-DELAY-VALUE
+                                # Villet: 90 s fixed delay; our steps: ceiling=40 is the hardest equiv.
+                                # (maze len_edge=7, ~10-15 steps/trial; 90 s@1step/s >> our scale,
+                                # so we pin to the curriculum ceiling — the hardest condition we train.)
     eval_every: int     = 100
     eval_trials: int    = 200
     final_trials: int   = 1000        # H1 binomial test
