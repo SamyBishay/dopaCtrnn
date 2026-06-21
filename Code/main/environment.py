@@ -30,11 +30,12 @@ Layout (row, col), arms on row 1 like the reference env:
     row h-2 : #     S       #        <- START (bottom of stem)
     row h-1 : ###############
 
-Phases (unchanged from the original):
+Phases (TUNL protocol):
   pre_sample : navigate from START up the stem to JUNCTION (shows sample)
   sample     : one arm blocked; navigate to the open arm end
-  delay      : free movement; phase signal decays x0.1 per step
-  choice     : navigate to the non-match arm (correct) or wrong arm
+  delay      : agent teleported back to START and held there (no movement, no step cost);
+               phase signal decays x0.1 per step — models the inter-trial holding box
+  choice     : agent released from START; navigate to the non-match arm (correct) or wrong arm
 
 Observation — goal-directed (obs, dim 6):
   [col/(w-1), row/(h-1), 0, sig_L, sig_R, sig_choice]
@@ -220,16 +221,21 @@ class TMazeVecEnv:
 
         self.step_count += active.astype(np.int64)
 
+        # Agents in the delay phase are held at START (holding-box model): no movement,
+        # no step cost. Mirrors the supervisor's `if not self.indelay: reward = step_rwd`.
+        in_delay = (self.phase == DELAY)
+
         ny = self.pos[:, 0] + _DR[a]
         nx = self.pos[:, 1] + _DC[a]
-        legal = self._passable_target(ny, nx, self.phase, self.blocked) & active
+        legal = self._passable_target(ny, nx, self.phase, self.blocked) & active & ~in_delay
         self.pos[legal, 0] = ny[legal]
         self.pos[legal, 1] = nx[legal]
 
         is_wait = (a == 4)
         cost = np.where(is_wait, self.cfg.wait_cost, self.cfg.step_cost).astype(np.float32)
-        int_r  -= cost * active
-        task_r -= cost * active
+        nav_active = active & ~in_delay
+        int_r  -= cost * nav_active
+        task_r -= cost * nav_active
 
         py, px = self.pos[:, 0], self.pos[:, 1]
 
@@ -258,6 +264,7 @@ class TMazeVecEnv:
             self.phase[at_open_end] = DELAY
             task_r[at_open_end] += self.cfg.arm_end_bonus
             self.delay_idx[at_open_end] = 0
+            self.pos[at_open_end] = self._start  # TUNL: teleport back to maze entrance
             just_entered_delay = at_open_end
 
         # DELAY -> CHOICE (skip envs that just entered DELAY this step)
@@ -274,9 +281,8 @@ class TMazeVecEnv:
                 just_entered_choice = to_choice
 
         # CHOICE -> terminal. An env that *just* entered CHOICE this step is
-        # excluded (it is still standing on the sampled arm end); it gets a free
-        # step to move first. This reproduces the original elif-chain semantics,
-        # where the step that set phase='choice' did not also run the choice test.
+        # excluded (it is at START and could not have reached an arm end yet);
+        # it gets a free step to start navigating first.
         m = active & (self.phase == CHOICE) & (~just_entered_choice)
         at_L = m & (py == self._l_end[0]) & (px == self._l_end[1])
         at_R = m & (py == self._r_end[0]) & (px == self._r_end[1])
