@@ -237,6 +237,8 @@ def train(cfg, verbose=True):
     ret_norm = RunningNorm(cfg.ret_norm_window)
     hab_solo_acc = 0.0   # last evaluated habitual-solo accuracy (for APE-decay)
     comb_acc     = 0.0
+    villet_learn_hist = []  # track eval windows where combined_acc >= threshold
+    villet_maint_count = 0  # counter for consecutive evals at maintenance threshold
 
     # ---- resume from a mid-run checkpoint, if present ----
     if cfg.ckpt_every > 0 and cfg.ckpt_path and os.path.exists(cfg.ckpt_path):
@@ -325,14 +327,29 @@ def train(cfg, verbose=True):
             # Gate checkpoint captures on curriculum ceiling: measuring the handoff
             # while the delay is still advancing conflates curriculum progress with
             # the goal-directed→habitual transition (supervisor pattern, line ~1127).
-            if (ckpt_learn is None and at_ceiling
-                    and comb["acc"] >= cfg.learn_combined_min
-                    and hab["acc"] <= cfg.learn_habsolo_max):
-                ckpt_learn = copy.deepcopy(model.state_dict())
-            if (at_ceiling
-                    and hab["acc"] >= cfg.maint_solo_min
-                    and comb["acc"] >= cfg.maint_solo_min):
-                ckpt_maint = copy.deepcopy(model.state_dict())
+            if at_ceiling:
+                # ---- Villet learning checkpoint: 2 non-consecutive evals at ≥70% ----
+                if ckpt_learn is None:
+                    if comb["acc"] >= cfg.villet_learn_acc:
+                        villet_learn_hist.append(total_episodes)
+                    else:
+                        villet_learn_hist = []
+                    
+                    # Capture when we have 2 qualifying evals with at least 1 gap between them
+                    # "non-consecutive" means last - first >= 1, i.e., not adjacent indices
+                    if len(villet_learn_hist) >= 2:
+                        if len(villet_learn_hist) - 1 >= 1:  # indices 0, 1 → at least 1 gap
+                            ckpt_learn = copy.deepcopy(model.state_dict())
+                
+                # ---- Villet maintenance checkpoint: 3 consecutive evals at ≥80% ----
+                if (comb["acc"] >= cfg.villet_maint_acc
+                        and hab["acc"] >= cfg.villet_maint_hab_min):
+                    villet_maint_count += 1
+                else:
+                    villet_maint_count = 0
+                
+                if villet_maint_count >= cfg.villet_maint_days:
+                    ckpt_maint = copy.deepcopy(model.state_dict())
 
             # Delay curriculum: advance when combined (GD-driven) accuracy is strong.
             # Requiring hab accuracy too blocks the curriculum while habitual is still

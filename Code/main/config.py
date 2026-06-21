@@ -91,10 +91,12 @@ class Config:
     traj_log_every: int   = 50
     traj_eval_trials: int = 60
 
-    # checkpoint selection (by eval'd accuracy)
-    learn_combined_min: float = 0.60  # learning phase: combined competent...
-    learn_habsolo_max: float  = 0.60  # ...but habitual not yet
-    maint_solo_min: float     = 0.80  # maintenance: habitual-solo carrying
+    # checkpoint selection (Villet's criteria, translated to eval windows)
+    villet_learn_acc: float = 0.70      # Villet learning criterion: ≥70% accuracy
+    villet_learn_days: int  = 2         # Villet: 2 non-consecutive days at criterion
+    villet_maint_acc: float = 0.80      # Villet maintenance criterion: ≥80% accuracy
+    villet_maint_days: int  = 3         # Villet: 3 consecutive days at criterion
+    villet_maint_hab_min: float = 0.70  # maintenance: habitual-solo also above this
 
     # ---- OPEN QUESTION #1 -------------------------------------------------
     # How is the DA-request signal trained?
