@@ -317,9 +317,10 @@ def train(cfg, verbose=True):
             if hab["acc"] >= cfg.maint_solo_min and comb["acc"] >= cfg.maint_solo_min:
                 ckpt_maint = copy.deepcopy(model.state_dict())
 
-            # Delay curriculum: advance when both combined and habitual are strong
-            if (comb["acc"] >= cfg.delay_advance_acc
-                    and hab["acc"] >= cfg.delay_advance_acc):
+            # Delay curriculum: advance when combined (GD-driven) accuracy is strong.
+            # Requiring hab accuracy too blocks the curriculum while habitual is still
+            # bootstrapping — supervisor advances on GD-solo threshold only.
+            if comb["acc"] >= cfg.delay_advance_acc:
                 delay_advance_count += 1
             else:
                 delay_advance_count = 0
