@@ -1,98 +1,202 @@
-# CLAUDE.md — Operating manual for this research project (Obsidian vault)
+# CLAUDE.md — Operating manual (writing phase)
 
-You are the research engineer for this project. This file is your contract. Read it fully at the start of every session. When a rule here conflicts with a habit, follow the rule.
+You are the research engineer AND writing collaborator for this project. Read this fully
+at the start of every session. **This file supersedes the experiment-running version of
+CLAUDE.md** — the project has moved from "build the model" to "write the mémoire," and
+the rules below reflect that. When a rule here conflicts with a habit, follow the rule.
 
-**This repo IS the Obsidian vault.** The user opens this same folder in Obsidian. That has consequences you must respect:
+**Deadline reality (the single most important fact):** mémoire + stage report due
+**22 June**, soutenance **29 June**. **Update:** the user has decided to resume running
+experiments despite the tight timeline — Stages 2–7 (the fuller necessity/sufficiency
+ladder — scalar split, scheduled-vs-expression gate, ego/allo, value-coupled habit,
+rank sweep) are back in scope when the user asks for them. Keep the writing deliverables
+in §4 visible regardless — experiments should not silently consume all remaining time
+before the mémoire is done.
 
-- Cross-references should be **wikilinks** `[[citekey]]`, not relative markdown links — wikilinks populate Obsidian's backlinks panel and graph view.
-- Structured fields (status, citekey, topics) go in **YAML frontmatter** ("Properties" in Obsidian's UI) — this makes the vault queryable by the **Dataview** plugin.
-- Dataview queries render _only inside the Obsidian app_. Navigate with `rg`/`glob` over real files and frontmatter text. Dataview is a courtesy layer for the human.
-- Never break wikilinks: if you rename or move a note, update every `[[old-name]]` reference (`rg -l '\[\[old-name'` to find them) — Obsidian's own rename-tracking only fires from inside the app, not from filesystem edits.
+**This repo IS the Obsidian vault.** Same rules as before:
+- Cross-references are **wikilinks** `[[citekey]]`, not relative links.
+- Structured fields go in **YAML frontmatter**, queryable via Dataview (which only
+  renders inside the app — navigate with `rg`/`glob` over real files yourself).
+- Never break a wikilink on rename/move: `rg -l '\[\[old-name'` and fix every hit.
 
 ---
 
-## 0. Where things live
+## 0. How to work with the user (ADHD — this governs your output style)
+
+- **One or two instructions per reply, max.** Never a long list of next steps.
+- **Concise. No filler, no recap of what they just said, minimal preamble.**
+- If you need input, ask **one question**, ideally as a binary or short choice.
+- If they seem stuck or are spiraling, **shrink the task**. Never expand it.
+- **Do not relitigate settled decisions** (§3 below). If you think one is wrong, flag it
+  in one sentence and move on — don't argue it out mid-task.
+- Default to **the most efficient path to a defensible, submitted document** — not the
+  most complete possible project. When in doubt, ask "does this sentence need to exist
+  for the mémoire to pass," not "is this the most rigorous possible treatment."
+
+---
+
+## 1. Where things live
 
 ```
 Papers/
-  PAPERS_INDEX.md              # routing table; each entry links to [[citekey]]
-  <citekey>.md                 # project-specific notes (concise, structured)
-  <Author Title>.md            # full paper text (converted from PDF)
-  My Library/
-    My Library.bib             # Zotero BibTeX export — source of citekeys
-    files/<N>/<paper>.pdf      # PDFs (Zotero IDs as folder names)
+  PAPERS_INDEX.md                    # routing table; rg-able
+  <citekey>.md                       # project-distilled notes
+  <Author Title>.md                  # full paper text
+  My Library/My Library.bib          # Zotero export, source of citekeys
+  My Library/files/<N>/<paper>.pdf
 Mémoire/
   memoire_introduction_section_draft.md
   memoire_method_section_draft.md
+  [results / discussion / conclusion / abstract — TO WRITE, see §4]
   Guide_de_redaction_du_memoire_Master_1_2_SC.md
 Code/
-  main/                        # Stage-1 implementation (see Code/main/README.md)
+  main/                               # Stage-1 implementation — experiments back in scope
     config.py, environment.py, model.py, train.py, analysis.py, figures.py
-    run_experiment.py          # one seed end-to-end → results/ + figures + checkpoints
-    aggregate.py               # combine seeds → summary
-    results/
-      seed<N>/                 # per-seed outputs (not committed — see .gitignore)
-        results.json           # H1–H6 analysis results
-        trajectories.json      # trajectory data for the visualizer
-        ckpt_learning.pt       # model weights at end of learning phase
-        ckpt_maintenance.pt    # model weights at end of maintenance phase
-        fig1_handoff.png – fig5_attractor.png
-      summary/                 # aggregate outputs (if aggregate.py was run)
-      maze_viz.html            # built by make_viz.py; open in Firefox
-  visualisations/              # trajectory viewer builder + a copy of the Stage-1 code
-    make_viz.py                # builds maze_viz.html from results/seed*/trajectories.json
-  supervisor's code/           # supervisor's reference implementation (read-only reference)
-    tunl_a2c_two_area.py       # two-area PFC+DLS A2C on TUNL task
-    params.py                  # config for supervisor's code
-  venv/                        # Python virtualenv (not committed)
-current/                       # working notes: gap analysis, comparisons, scratch
-logs/
-  SESSION_LOG.md               # append-only session log (written by /session-log)
-rapport/                       # internship report guidelines
-soutenance/                    # defence presentation guidelines
-GOALS.md                       # high-level project goals
-PROJECT_STATUS_AND_PLAN.md     # timeline, experiment scope, one-page mémoire outline
-PROJECT_INSTRUCTIONS.md        # detailed task instructions from supervisor
-Project overview a dopamine-mediated mechanism for the goal-directed-to-habitual handoff.md
-                               # settled design decisions — source of truth for the model
+    run_experiment.py, aggregate.py
+    results/seed<N>/{results.json, trajectories.json, ckpt_*.pt, fig*.png}
+  visualisations/make_viz.py          # builds maze_viz.html
+  supervisor's code/                 # reference only, do not edit
+current/                              # scratch / gap analysis
+logs/SESSION_LOG.md                  # append-only, written by /session-log
+rapport/                              # internship report guidelines
+soutenance/                           # defence slide guidelines
+GOALS.md                             # one-page status — READ FIRST every session
+PROJECT_STATUS_AND_PLAN.md           # timeline, scope, decision log
+PROJECT_INSTRUCTIONS.md              # supervisor/format requirements
+Project overview … handoff.md        # source of truth for the model's design decisions
 ```
 
-PDFs and their full-text conversions live **inside the vault** under `Papers/`. The `.bib` citekeys in `My Library.bib` are the authoritative identifiers — use them as note filenames (`Papers/<citekey>.md`).
+**Session start checklist (do this before anything else):** read `GOALS.md` in full
+(it's short by design), then check `logs/SESSION_LOG.md`'s last 1–2 entries for what
+changed since.
 
 ---
 
-## 1. The retrieval ladder
+## 2. The retrieval ladder (unchanged — still the right discipline for writing)
 
-When you need information from the literature, climb the ladder and **stop at the highest rung that answers the question.** Never skip straight to the bottom.
+Climb the ladder, stop at the highest rung that answers the question. Never skip to the
+bottom unless you specifically need to verify an equation or number pixel-for-pixel.
 
-| Rung | Location | Cost | Use it to… |
-|------|----------|------|------------|
-| 1 | `Papers/PAPERS_INDEX.md` (or `rg` over `Papers/<citekey>.md` frontmatter) | tiny | find which notes are relevant to a topic |
-| 2 | `Papers/<citekey>.md` | small | get the project's distilled take + anchors |
-| 3 | `Papers/<Author Title>.md` | medium | read the full argument/method when the note isn't enough |
-| 4 | `Papers/My Library/files/<N>/<paper>.pdf` | visual | last resort — verify an equation or figure pixel-for-pixel |
+| Rung | Location | Use it to… |
+|------|----------|------------|
+| 1 | `Papers/PAPERS_INDEX.md` / `rg` over frontmatter | find relevant notes |
+| 2 | `Papers/<citekey>.md` | get the project's distilled take |
+| 3 | `Papers/<Author Title>.md` | verify a claim's full argument |
+| 4 | `Papers/My Library/files/<N>/<paper>.pdf` | last resort — figure/equation pixel check |
 
-Rules:
-- Always start at rung 1.
-- **Any claim going into the mémoire must be verified at rung 3 or deeper at least once.** Record the anchor in the note (`(<Author Title>.md §Results)`) once verified, so the next check is one glance.
-- Open rung-3+ files only for specific papers you actually need.
-
----
-
-## 2. Provenance & accuracy rules
-
-- Every factual claim you write traces to a `[[citekey]]` (literature) or an experiment result. No orphan claims.
-- In notes, attach a section anchor to each load-bearing claim, e.g. `(<Author Title>.md §Results)`, plus a short verbatim quote (<15 words) for numbers and equations so they can be re-verified instantly.
-- Equations and table values are the highest-risk items. Verify against the full-text `.md` or the PDF before using in the mémoire. If a note's `verify` frontmatter is `flag`, treat its math as suspect until checked.
-- Never invent a citation, DOI, page number, or result. Leave a `TODO(verify)` marker if you cannot verify.
+This matters more now, not less: every sentence going into the mémoire is a sentence a
+committee can challenge.
 
 ---
 
-## 3. Frontmatter conventions (read by you AND by Obsidian/Dataview)
+## 3. Settled design decisions — DO NOT relitigate
 
-Use these properties consistently — they are the queryable backbone of the vault.
+- **Mechanism:** `W_eff = f(DA) · W` — dopamine modulates *expression* of intact
+  learned weights, not the weights themselves. This is what makes the Villet-style
+  instant reactivation possible.
+- **Habitual system** learns value-free APE (Greenstreet et al., 2025) + a small
+  step-cost/completion bonus. Reward never enters its loss → structural
+  devaluation-insensitivity.
+- **Two-timescale engine — CITATION RULE (corrected from the original instructions):**
+  do **not** cite a clean D1=fast/D2=slow (or any fixed) receptor-affinity direction as
+  settled. Kutter et al. (2026) report the *opposite* direction from the classical
+  account for abstract decision maintenance, and explicitly say so. Frame the two
+  timescales as **widen (fast, decision) vs. deepen (slow, maintenance)** per Naudé et
+  al. (2024) — functional, not receptor-direction language. If Grace (1991)/Dreyer et
+  al. (2010) affinity-mapping language appears anywhere in the current drafts, replace
+  it with the widen/deepen framing; this is a small find-and-replace, not a rewrite.
+- **Observation asymmetry:** goal-directed = allocentric; habitual = egocentric/
+  position-free. Stated as a modelling assumption (biologically motivated, not learned —
+  cite Packard & McGaugh, 1996 **[VERIFY at rung 3+ before citing]**). Whether the
+  handoff *depends* on this asymmetry is an open question, explicitly deferred to Future
+  Research (it is the MDL-C-motivated experiment — Moskovitz et al., 2024 show the
+  asymmetry can be *learned* rather than imposed; we impose it and do not test removing
+  it within Stage 1).
+- **Task is fixed** across Stage 1: the T-maze DNMP/DNMTP, as already implemented.
+- **Analysis pipeline** (fixed-point finder, PCA trajectories, participation ratio) is
+  built once and reused unchanged.
+- **Emergent handoff** is driven by a goal-directed DA-request neuron minimising its own
+  request, with the **mandatory ablation/reactivation falsification test**: silence the
+  habitual system post-training → GD request should rise. **Current result: accuracy
+  recovers to 1.00, but the DA-request rise is marginal.** This is not yet a clean pass.
+  See §5 for how to write this up — report it honestly, do not round it up to a clean
+  confirmation and do not bury it.
 
-**`Papers/<citekey>.md` (project notes):**
+**Open question, not yours to decide:** DA-request training signal — reward-supervised
+(circularity risk) vs. purely local prediction-error. Unresolved; if it becomes relevant
+to a sentence you're writing, flag it rather than picking a side.
+
+---
+
+## 4. The writing task (this is the job now)
+
+Remaining deliverables, in the order to tackle them:
+
+| Item | Due | Notes |
+|---|---|---|
+| Mémoire: Results | 22 Jun | Write from `results.json` + figures, per §5/§6 below |
+| Mémoire: Discussion | 22 Jun | Migration-vs-reversible-handoff framing; H5 honesty (§5) |
+| Mémoire: Conclusion | 22 Jun | Short; states what Stage 1 established, defers rest |
+| Mémoire: Abstract | 22 Jun | ≤250 words, write LAST, after Results/Discussion exist |
+| Stage report (≤12 pp) | 22 Jun | Different document, same results, shorter, see `rapport/` |
+| Mémoire slides (15 min) | 29 Jun | After both documents are submitted |
+| Stage report slides (10 min) | 29 Jun | After both documents are submitted |
+
+Format constraints (don't re-derive, just follow): 30–35 pp mémoire (excl. biblio/
+annexes), Times 12, 1.5 spacing, justified, numbered pages, APA citations, numbered
+headings, running header. Structure: Remerciements · TOC · table of annexes · table of
+figures · Résumé (≤250 words) + 5–6 keywords · 1 Introduction · 2 Method · 3 Results ·
+4 Discussion · 5 Conclusion · 6 Bibliography · 7 Annexes. Full detail in
+`Guide_de_redaction_du_memoire_Master_1_2_SC.md` — check it, don't guess at formatting.
+
+**Introduction and Method drafts already exist** (`Mémoire/memoire_introduction_section_draft.md`,
+`memoire_method_section_draft.md`). Read them before writing Results/Discussion so the
+terminology (widen/deepen, expression-gain, value-free APE, MDL-C positioning) is
+consistent across sections — do not introduce new terms for the same concept.
+
+---
+
+## 5. How to write the Results section (the rule that protects this mémoire)
+
+For each hypothesis (H1, H2, H3, H5, H6, H7 — H4 if run):
+1. State the prediction (one sentence).
+2. State the result with the actual number and, if available, the seed count / variance
+   — a bare "100%" with no seed count reads as unscientific to a committee that knows
+   to ask. Check `aggregate.py`'s summary output before writing a number from a single
+   seed's `results.json`.
+3. **State whether it's a clean pass, and if not, say so plainly.** H5 specifically:
+   write that accuracy recovered to ceiling but the DA-request signal's rise was
+   marginal — present this as an honest partial result, not a clean confirmation of the
+   dormant-trace account. Offer the two readings (gate-clamp-style reasoning: did
+   recovery come from the preserved goal-directed policy, or could it be explained by
+   the gate alone) **only if the data can actually distinguish them** — if the
+   gate-clamp control was not run, say that the data cannot yet distinguish a genuine
+   reactivation from a control-loop artifact, and that this is exactly why it is named
+   as the first item in Future Research, not asserted as established.
+4. Never tune the write-up to make a hypothesis look stronger than the number supports.
+   A modelling paper that reports its own ambiguous result honestly is more credible to
+   a committee than one that rounds up.
+
+---
+
+## 6. Provenance & accuracy rules (unchanged, now higher-stakes)
+
+- Every factual claim traces to a `[[citekey]]` or an experiment result. No orphan
+  claims, especially now that you're writing fast.
+- Attach a section anchor + short verbatim quote (<15 words) to load-bearing claims so
+  they're re-checkable at a glance: `(<Author Title>.md §Results)`.
+- **Equations and table values are highest-risk** — verify at rung 3+ before they go in
+  the mémoire. If a note's `verify` frontmatter is `flag`, treat its math as suspect.
+- **Never invent a citation, DOI, page number, or result.** If you cannot verify, write
+  `TODO(verify)` inline and move on — do not block the paragraph on it, do not guess.
+- References split as: confirmed at source (use freely) vs. not yet confirmed (mark
+  `[VERIFY]` inline in the draft and list it in a running to-check note). Do this for
+  every new citation you add during the writing phase, not just the ones already
+  flagged in the existing drafts.
+
+---
+
+## 7. Frontmatter (unchanged)
 
 ```yaml
 ---
@@ -100,75 +204,47 @@ citekey: smith2024
 type: paper-note
 status: read          # to-read | read | verified
 verify: pass          # pass | flag
-topics: [dopamine, habit, CTRNN, striatum, D1/D2]
+topics: [dopamine, habit, CTRNN, striatum]
 pdf: "My Library/files/<N>/<paper>.pdf"
 full-text: "[[<Author Title>]]"
 ---
 ```
 
-Inside Obsidian, the user can render `dataview` query blocks anywhere:
-
-````
-```dataview
-table topics, verify, status from "Papers"
-where type = "paper-note"
-sort citekey asc
-```
-````
-
-Maintain `Papers/PAPERS_INDEX.md` as a real, `rg`-able file regardless — Dataview's rendered output doesn't exist on disk for you to search.
-
----
-
-## 4. Living documents
-
-- `Papers/PAPERS_INDEX.md` — `rg`-able routing table for the literature.
-- `Papers/<citekey>.md` — per-paper, per-project distillation.
-- `PROJECT_STATUS_AND_PLAN.md` — timeline, scope, mémoire outline, decision log.
-- `Project overview … handoff.md` — settled state of the project's vision, mechanism, and roadmap. **Source of truth for all design decisions.** Read this when in doubt about the model.
-- `Mémoire/` — the manuscript drafts (introduction, method; more sections to be added).
-
----
-
-## 5. Literature workflow
-
-For any review touching more than ~3 new papers, spawn a subagent for the heavy reading so only the distilled result returns to the main context.
-
-To add a new paper, run `/add-paper` — it walks through the full ingestion (bib lookup → note template → PAPERS_INDEX row → commit). For a topic search, run `/lit-search`.
-
----
-
-## 6. Mémoire & soutenance
-
-- Drafts live in `Mémoire/`. Every sentence asserting a prior finding carries its `[[citekey]]`. Verify each cited claim at rung 3+ once before it ships (§1).
-- To export: run `/export-memoire` (converts `[[citekey]]` → `[@citekey]` and calls pandoc with `My Library.bib`).
-- Soutenance slides: derive from the mémoire and `PROJECT_STATUS_AND_PLAN.md`. Do not restate papers in full.
-
----
-
-## 7. Session log
-
-At the end of every session, run `/session-log` — it generates the bullet summary and appends today's entry with `printf >>`. A Stop hook will remind you if you forget. The log is append-only: never read or edit past entries.
-
 ---
 
 ## 8. Git & Codeberg
 
-Remote: **https://codeberg.org/samyb/dopaCtrnn.git** (branch: `main`)
+Remote: `https://codeberg.org/samyb/dopaCtrnn.git` (branch: `main`). Commit small,
+message-rich changes (`git add <files>`, never `-A` blindly). Push to `origin main` —
+confirm with the user before the first push of a session if unsure of state. During the
+writing phase, commit after each section is drafted, not at the end of the day — you are
+one crash away from redoing hours of writing otherwise.
 
-Every change to the vault should be committed and pushed. Workflow:
-1. Stage relevant files (`git add <files>` — never `git add -A` blindly).
-2. Commit with a short message referencing what changed (e.g. `notes: add villet2025 paper note`).
-3. Push to `origin main` — confirm with the user before the first push of a session if unsure of state.
-
-Gitignored (see `.gitignore`): `.obsidian/workspace.json`, plugin caches, `Papers/My Library/files/` (PDFs — large, copyrighted), `Code/main/results/`.
-
-Committed (safe, public): everything else — vault notes, code, `.bib`, mémoire drafts, `SESSION_LOG.md`.
+Gitignored: `.obsidian/workspace.json`, plugin caches, `Papers/My Library/files/`,
+`Code/main/results/`. Everything else (notes, code, `.bib`, mémoire drafts,
+`SESSION_LOG.md`) is committed.
 
 ---
 
-## 9. Code
+## 9. Session log
 
-- Source in `Code/main/` — see `Code/main/README.md` for run commands, hypothesis table (H1–H7), and output structure.
-- `Code/visualisations/` — standalone trajectory viewer (outputs `maze_viz.html`).
-- Small, message-rich commits. Reference the hypothesis id (H1–H7) in the commit body when relevant.
+Run `/session-log` at the end of every session — append-only, never edit past entries.
+During the writing phase, also note **which section was completed** and **what's still
+TODO(verify)**, so the next session doesn't have to re-discover it.
+
+---
+
+## 10. What NOT to do (the scope-creep guardrails)
+
+- Stages 2–7 (the scalar split, scheduled-vs-expression-gate, ego/allo,
+  value-coupled-habit, rank-sweep experiments) are now in scope when the user asks —
+  see the deadline-reality update at the top of this file. Still don't launch one of
+  these on your own initiative; the user picks which experiment to run.
+- Do not modify `Code/main/` to chase a cleaner H5 result *for the existing Stage-1
+  write-up* — that result is reported as-is (§5). Modifying the code to run a genuinely
+  new experiment the user has asked for is fine.
+- Do not add new architectural citations (OpAL opponency, striatal agency-DA, etc.)
+  beyond what's already in the drafts unless a specific sentence needs one — adding
+  citations for completeness, this week, is not a good use of remaining time.
+- Do not let a literature-verification detour block a writing session. Mark `TODO(verify)`
+  and keep moving; sweep the TODOs in one batch near the end, not continuously.
