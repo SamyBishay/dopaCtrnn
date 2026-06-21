@@ -40,6 +40,11 @@ class Config:
     gain_da: float     = 0.5          # extra expression gain per unit DA
     wgd_alpha: float   = 6.0          # w_GD = sigmoid(alpha * DA + bias)
     wgd_bias: float    = -2.0         # init so w_GD → low when DA → 0
+    da_split: bool     = False        # False (default): expression-gain and arbitration use the
+                                      # same da_request scalar (tied; bit-identical to pre-split).
+                                      # True: split into da_expression (→ W_eff) and da_arbitration
+                                      # (→ w_gd). Step 7 will wire them to separate sub-networks;
+                                      # here it is the structural scaffold only.
 
     # ---- training (train.py) ----
     episodes: int   = 512000          # raised from 32k: longer curriculum needs more episodes

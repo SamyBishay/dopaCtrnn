@@ -3,8 +3,10 @@
 All tensors carry a batch dimension B (number of parallel environments).
 Single-env rollouts use B=1 via reset_state(1).
 
-Goal-directed (mPFC/DMS): CTRNN, split into D1/phasic-sensitive and
-D2/tonic-sensitive half. Dopamine sets a MULTIPLICATIVE EXPRESSION GAIN:
+Goal-directed (mPFC/DMS): CTRNN, split into a fast (widen) half at the
+action/decision timescale and a slow (deepen) half at the maintenance
+timescale. Cortical DA controls strength and temporal stability of decision
+codes (Kutter et al.). Dopamine sets a MULTIPLICATIVE EXPRESSION GAIN:
 W_eff = f(DA) * W. Emits action logits, a scalar DA-request, and value.
 
 Habitual (DLS): CTRNN, opponent Go/NoGo readouts (policy = Go - NoGo).
@@ -50,8 +52,12 @@ class GDNet(nn.Module):
         self.b_v   = nn.Parameter(torch.zeros(1))
         self.gain_base = nn.Parameter(torch.tensor(cfg.gain_base))
         self.gain_da   = nn.Parameter(torch.tensor(cfg.gain_da))
-        mask = torch.zeros(n); mask[: n // 2] = 1.0
-        self.register_buffer("d1_mask", mask)
+        # n_fast = widen units (fast, action/decision timescale);
+        # n_slow = deepen units (slow, maintenance timescale, tonic low-pass).
+        self.n_fast = n // 2
+        self.n_slow = n - self.n_fast
+        fast_mask = torch.zeros(n); fast_mask[: self.n_fast] = 1.0
+        self.register_buffer("fast_mask", fast_mask)
 
     def step(self, x, h, da_tonic, lesion=False):
         """x: [B, obs_dim], h: [B, n], da_tonic: [B]  →  all [B, ...]."""
@@ -62,7 +68,9 @@ class GDNet(nn.Module):
             h = torch.zeros_like(h)
         da_request = torch.sigmoid((h * self.w_da).sum(-1) + self.b_da.squeeze())  # [B]
         da_tonic   = (1 - self.cfg.tonic_kappa) * da_tonic + self.cfg.tonic_kappa * da_request
-        da_comp    = self.d1_mask * da_request.unsqueeze(-1) + (1 - self.d1_mask) * da_tonic.unsqueeze(-1)  # [B, n]
+        # Fast (widen) units track the phasic da_request; slow (deepen) units
+        # track the tonic low-pass — the timescale split, not a receptor label.
+        da_comp    = self.fast_mask * da_request.unsqueeze(-1) + (1 - self.fast_mask) * da_tonic.unsqueeze(-1)  # [B, n]
         gain  = self.gain_base + self.gain_da * da_comp
         r_out = gain * torch.tanh(h)                               # [B, n]
         pi    = r_out @ self.W_out.T + self.b_out                  # [B, n_actions]
@@ -153,12 +161,28 @@ class DualSystemModel(nn.Module):
             obs, self.h_gd, self.da_tonic, lesion=les_gd)
         pi_h, self.h_hab = self.hab.step(obs2, self.h_hab, lesion=les_hab)
 
-        if force_w is None:
-            w_gd = torch.sigmoid(self.alpha * da_request + self.bias)   # [B]
+        # Scalar split: expression-gain path (→ W_eff, inside gd.step) vs the
+        # arbitration path (→ w_gd, below). In the tied default both equal
+        # da_request, so the forward pass is bit-identical to pre-split. When
+        # cfg.da_split is True the two are computed independently — Step 7 wires
+        # them to separate sub-networks; here it is the structural scaffold only.
+        if self.cfg.da_split:
+            da_expression  = da_request   # stub: Step 7 will wire separate sub-networks
+            da_arbitration = da_request
         else:
-            w_gd = torch.full_like(da_request, float(force_w))
+            da_expression  = da_request
+            da_arbitration = da_request
+        # NOTE: da_expression feeds W_eff. gd.step already used da_request for the
+        # gain path; in the tied default this is identical, so no rewire needed.
+        # Step 7 will thread da_expression into gd.step explicitly.
+
+        if force_w is None:
+            w_gd = torch.sigmoid(self.alpha * da_arbitration + self.bias)   # [B]
+        else:
+            w_gd = torch.full_like(da_arbitration, float(force_w))
 
         w = w_gd.unsqueeze(-1)                                          # [B, 1]
         combined = w * mot * pi_gd + (1.0 - w) * pi_h                  # [B, n_actions]
         return {"combined": combined, "pi_gd": pi_gd, "pi_h": pi_h,
-                "da_request": da_request, "value": value, "w_gd": w_gd}
+                "da_request": da_request, "value": value, "w_gd": w_gd,
+                "da_expression": da_expression, "da_arbitration": da_arbitration}
