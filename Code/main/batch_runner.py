@@ -43,6 +43,12 @@ EXPERIMENTS = {
            "extra": {}},
     "e8": {"flag": "hab_rank",     "arms": ["0", "1", "2", "4", "8"],
            "extra": {}},
+    "e6": {"flag": None, "arms": ["uniform_tau"],
+           "extra": {"da_tau": True, "tau_mode": "uniform"}},
+    "e7": {"flag": None, "arms": ["dual_tau"],
+           "extra": {"da_tau": True}},
+    "e9": {"flag": None, "arms": ["naude_full"],
+           "extra": {"da_gain_mode": "recurrent", "da_tau": True}},
 }
 
 CLI_FLAG = {
@@ -51,6 +57,9 @@ CLI_FLAG = {
     "habit_rule": "--habit-rule",
     "habit_obs": "--habit-obs",
     "hab_rank": "--hab-rank",
+    "da_gain_mode": "--da-gain-mode",
+    "tau_mode":     "--tau-mode",
+    "da_tau":       "--da-tau",
 }
 
 
@@ -72,10 +81,13 @@ def _build_cmd(exp_def, arm, seed, episodes, outdir):
     if flag is not None and arm != "default":
         cmd += [CLI_FLAG[flag], arm]
     for k, v in exp_def["extra"].items():
-        if k == "da_split" and v:
-            cmd.append("--da-split")
+        if isinstance(v, bool):
+            if v:
+                cmd.append(f"--{k.replace('_', '-')}")
+            # False bool flags: omit (don't pass --no-X)
         else:
-            cmd += [f"--{k.replace('_', '-')}", str(v)]
+            cli_k = CLI_FLAG.get(k, f"--{k.replace('_', '-')}")
+            cmd += [cli_k, str(v)]
     return cmd
 
 

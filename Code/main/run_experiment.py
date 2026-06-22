@@ -75,6 +75,18 @@ def main():
     ap.add_argument("--habit-obs", type=str, default=None,
                     choices=["position_free", "allocentric"],
                     help="E5: position-free habit observation (default) vs allocentric")
+    ap.add_argument("--da-gain-mode", type=str, default=None,
+                    choices=["output", "recurrent"],
+                    help="E9: DA gain on output readout (default) or inside recurrence (Naudé W_eff)")
+    ap.add_argument("--tau-mode", type=str, default=None,
+                    choices=["mixed", "uniform"],
+                    help="E6/E7: mixed=fast+slow tau init (default); uniform=all same tau")
+    ap.add_argument("--da-tau", action="store_true",
+                    help="E6/E7/E9: enable DA-modulated effective integration tau")
+    ap.add_argument("--tau-uniform", type=float, default=None,
+                    help="Initial tau when --tau-mode=uniform (default 10.0)")
+    ap.add_argument("--da-tau-gain", type=float, default=None,
+                    help="Log-space tau shift magnitude per unit DA (default 0.5)")
     args = ap.parse_args()
 
     cfg = Config(seed=args.seed, device=args.device)
@@ -107,6 +119,17 @@ def main():
     if args.habit_obs is not None:
         cfg.habit_obs = args.habit_obs
         cfg.__post_init__()  # re-sync obs_dim_hab now that habit_obs is set
+    if args.da_gain_mode is not None:
+        cfg.da_gain_mode = args.da_gain_mode
+    if args.tau_mode is not None:
+        cfg.tau_mode = args.tau_mode
+        cfg.__post_init__()
+    if args.da_tau:
+        cfg.da_tau = True
+    if args.tau_uniform is not None:
+        cfg.tau_uniform = args.tau_uniform
+    if args.da_tau_gain is not None:
+        cfg.da_tau_gain = args.da_tau_gain
 
     tag = f"seed{args.seed}" + ("_untrained" if args.untrained else "")
     outdir = os.path.join(args.outdir, tag)
