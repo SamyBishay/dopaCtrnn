@@ -22,15 +22,13 @@
   .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px}
   .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin:0 0 14px;font-weight:650}
   .card h2 .sub{text-transform:none;letter-spacing:0;font-weight:400;color:var(--mut);font-size:12px}
-  #drop{border:1.5px dashed var(--line);border-radius:var(--r);padding:34px;text-align:center;color:var(--mut);cursor:pointer;transition:.15s}
-  #drop.hover{border-color:var(--accent);color:var(--ink);background:var(--panel2)}
-  #drop b{color:var(--ink)}
-  #drop input{display:none}
   .hint{font-size:12px;color:var(--mut);margin-top:8px}
   .chartwrap{position:relative}
   svg{display:block;width:100%;height:auto;font-family:var(--mono);font-size:11px}
   .legend{display:flex;gap:18px;flex-wrap:wrap;margin-top:8px;font-family:var(--mono);font-size:12px}
   .legend span{display:inline-flex;align-items:center;gap:6px;color:var(--mut)}
+  .legend [data-series]{cursor:pointer;transition:color .12s}
+  .legend [data-series]:hover{color:var(--ink)}
   .swatch{width:14px;height:3px;border-radius:2px;display:inline-block}
   .dot{width:9px;height:9px;border-radius:50%;display:inline-block}
   .player{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start}
@@ -71,48 +69,79 @@
   .h5verdict{font-size:13px;line-height:1.55;margin:0 0 4px}
   .note{font-size:12px;color:var(--mut);line-height:1.5}
   .barlabel{font-family:var(--mono);font-size:11px;fill:var(--mut)}
+  /* load card */
+  .loadrow{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:16px}
+  #drop{border:1px dashed var(--line);border-radius:var(--r);padding:18px;text-align:center;color:var(--mut);cursor:pointer;transition:.15s;font-size:12px}
+  #drop.hover{border-color:var(--accent);color:var(--ink);background:var(--panel2)}
+  #drop b{color:var(--ink)}
+  #drop input{display:none}
+  /* batch summary */
+  .batch-stats{display:flex;gap:28px;flex-wrap:wrap;margin-bottom:18px}
+  .batch-stat{display:flex;flex-direction:column;gap:2px}
+  .batch-stat .lbl{color:var(--mut);font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.06em}
+  .batch-stat .val{color:var(--ink);font-family:var(--mono);font-size:15px;font-weight:600}
+  .batch-table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px}
+  .batch-table th{color:var(--mut);font-weight:600;text-align:left;padding:5px 10px;border-bottom:1px solid var(--line);font-size:10px;text-transform:uppercase;letter-spacing:.06em}
+  .batch-table td{padding:5px 10px;border-bottom:1px solid rgba(48,54,61,0.5);vertical-align:middle}
+  .batch-table tr[data-idx]{cursor:pointer;transition:background .1s}
+  .batch-table tr[data-idx]:hover td{background:var(--panel2)}
+  .batch-table tr.active-run td{background:var(--panel2)}
+  .batch-table tr.active-run td:first-child{border-left:2px solid var(--accent);padding-left:8px}
 </style>
 </head>
 <body>
 <header>
   <h1>Dual-system T-maze</h1>
   <span class="meta" id="hdrmeta">no data loaded</span>
+  <select id="runsel" style="display:none" title="Switch run"></select>
   <span class="verdicts" id="verdicts"></span>
 </header>
 
 <!-- EMBEDDED_DATA: build_viz.py replaces the object below with one experiment's
-     {traj, logs, results, figs} so this file is fully self-contained. Left empty
-     ({}), this file behaves exactly like the original drag-and-drop visualiser. -->
+     {traj, logs, results, figs} so this file is fully self-contained. -->
 <script id="embedded-data" type="application/json">{}</script>
 
 <main>
   <div class="card" id="loadcard">
-    <h2>Load run</h2>
+    <h2>Load</h2>
+    <div class="loadrow">
+      <button class="primary" id="btnOpenFolder" style="font-size:14px;padding:10px 20px">
+        &#128193; Open results folder
+      </button>
+      <span class="hint" style="margin:0">Scans all seed subdirectories automatically and loads the full batch.</span>
+    </div>
     <label id="drop">
       <input type="file" id="file" multiple accept=".json">
-      Drop <b>trajectories.json</b> (and optionally <b>results.json</b>) here, or click to choose.
-      <div class="hint">trajectories.json drives the maze player. results.json adds the handoff chart and the H1/H3/H4/H5/H6 panels.</div>
+      or drop individual <b>trajectories.json</b> / <b>results.json</b> files here (single run or mixed batch)
     </label>
+    <!-- fallback for browsers without showDirectoryPicker -->
+    <input type="file" id="dirInput" webkitdirectory style="display:none" accept=".json">
+  </div>
+
+  <div class="card" id="batchcard" style="display:none">
+    <h2>Batch summary <span class="sub" id="batchsubtitle"></span></h2>
+    <div class="batch-stats" id="batchstats"></div>
+    <table class="batch-table" id="batchtable"></table>
   </div>
 
   <div class="card" id="handoffcard" style="display:none">
-    <h2>H2 — the handoff <span class="sub">competence-locked control transfer across training (the core claim) — lines are EMA-smoothed (&alpha;=0.15), dots are the raw per-eval values</span></h2>
+    <h2>H2 — the handoff <span class="sub">competence-locked control transfer across training — lines are EMA-smoothed (&alpha;=0.15), dots are raw per-eval values</span></h2>
     <div class="chartwrap">
       <svg id="handoff" viewBox="0 0 900 340" preserveAspectRatio="xMidYMid meet"></svg>
     </div>
     <div class="legend">
-      <span><span class="swatch" style="background:var(--hab)"></span>habitual-solo accuracy</span>
-      <span><span class="swatch" style="background:var(--accent)"></span>combined accuracy</span>
-      <span><span class="swatch" style="background:var(--gd);height:0;border-top:2px dashed var(--gd)"></span>goal-directed-solo</span>
-      <span><span class="swatch" style="background:var(--warn)"></span>w_GD (GD expression gain)</span>
-      <span><span class="swatch" style="background:var(--delay)"></span>DA-request</span>
+      <span data-series="hab"><span class="swatch" style="background:var(--hab)"></span>habitual-solo accuracy</span>
+      <span data-series="combined"><span class="swatch" style="background:var(--accent)"></span>combined accuracy</span>
+      <span data-series="gd"><span class="swatch" style="background:var(--gd);height:0;border-top:2px dashed var(--gd)"></span>goal-directed-solo</span>
+      <span data-series="wgd"><span class="swatch" style="background:var(--warn)"></span>w_GD (GD expression gain)</span>
+      <span data-series="da"><span class="swatch" style="background:var(--delay)"></span>DA-request</span>
       <span style="color:var(--ink)">click a point &rarr; load nearest episode below</span>
     </div>
     <p class="hint" id="handoffread"></p>
   </div>
 
   <div class="card" id="playercard" style="display:none">
-    <h2>Trial player <span class="sub">who is driving? agent &amp; path tint from green (habitual) to orange (goal-directed) by w_GD</span></h2>
+    <h2>Trial player <span class="sub">path tint from green (habitual) to orange (goal-directed) by w_GD</span></h2>
     <div class="controls" style="margin-top:0;margin-bottom:14px">
       <button class="tabbtn active" id="tabTrain">training trials</button>
       <button class="tabbtn" id="tabEval">final-policy (eval) trials</button>
@@ -122,7 +151,6 @@
       <button id="trialNext" title="next trial">&#9654;</button>
       <span class="pill" id="trialpill">trial 0/0</span>
     </div>
-
     <div class="player">
       <div class="mazebox">
         <svg id="maze" viewBox="0 0 360 360" width="360" height="360"></svg>
@@ -145,7 +173,6 @@
           <span style="color:var(--gd)">goal-directed</span>
         </div>
       </div>
-
       <div class="sidebar">
         <div class="card" style="padding:14px"><dl class="kv" id="trialkv"></dl></div>
         <div class="card" style="padding:14px"><dl class="kv" id="stepkv"></dl></div>
@@ -155,7 +182,7 @@
   </div>
 
   <div class="card h5card" id="h5card" style="display:none">
-    <h2>H5 — reactivation after silencing the habitual system <span class="sub">the project's most nuanced result — reported honestly, not rounded up</span></h2>
+    <h2>H5 — reactivation after silencing the habitual system <span class="sub">reported honestly, not rounded up</span></h2>
     <div class="grid2">
       <div>
         <svg id="h5chart" viewBox="0 0 360 180" preserveAspectRatio="xMidYMid meet"></svg>
@@ -182,7 +209,7 @@
   <details id="figcard" style="display:none">
     <summary>Static figures (from the analysis pipeline)</summary>
     <div class="body">
-      <p class="hint">Drop the <code>fig*.png</code> files from the run's output folder to view them here.</p>
+      <p class="hint">Drop <code>fig*.png</code> files from the run's output folder here.</p>
       <label id="figdrop" class="hint" style="display:block;border:1px dashed var(--line);border-radius:8px;padding:18px;text-align:center;cursor:pointer">
         <input type="file" id="figfile" multiple accept=".png" style="display:none">
         drop figures here
@@ -191,33 +218,34 @@
     </div>
   </details>
 
-  <div class="empty" id="noState">Load a run to begin.</div>
+  <div class="empty" id="noState">Open a results folder or drop files to begin.</div>
 </main>
 
 <script>
 "use strict";
-const S = { traj:null, logs:null, results:null, mode:"train", trial:0, step:0, playing:false, timer:null, geom:null };
+const S = { runs:[], runIdx:0, traj:null, logs:null, results:null, mode:"train", trial:0, step:0, playing:false, timer:null, geom:null };
 const SVGNS="http://www.w3.org/2000/svg";
 function el(tag,attrs){const e=document.createElementNS(SVGNS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);return e;}
 
-// ---- colour helpers: interpolate habitual(green) -> goal-directed(orange) by w_gd
 const GD_RGB=[0xd2,0x69,0x1e], HAB_RGB=[0x3f,0xb9,0x50];
-function driverColor(w){ // w in [0,1] expression gain of GD
+function driverColor(w){
   const t=Math.max(0,Math.min(1,w));
   const c=GD_RGB.map((g,i)=>Math.round(HAB_RGB[i]+(g-HAB_RGB[i])*t));
   return "rgb("+c[0]+","+c[1]+","+c[2]+")";
 }
 
-// If build_viz.py embedded data, load it straight away and skip drag/drop entirely.
+// embedded data path (build_viz.py)
 (function loadEmbedded(){
   let data;
-  try{ data = JSON.parse(document.getElementById("embedded-data").textContent); }catch(e){ return; }
-  if(!data || !data.traj) return;
-  S.traj = data.traj;
-  if(data.logs) S.logs = data.logs;
-  if(data.results) S.results = data.results;
-  document.getElementById("loadcard").style.display = "none";
-  window.addEventListener("DOMContentLoaded", ()=>{
+  try{ data=JSON.parse(document.getElementById("embedded-data").textContent); }catch(e){ return; }
+  if(!data||!data.traj) return;
+  S.traj=data.traj;
+  if(data.logs) S.logs=data.logs;
+  if(data.results) S.results=data.results;
+  S.runs=[{seed:data.traj.seed, traj:S.traj, logs:S.logs, results:S.results}];
+  S.runIdx=0;
+  document.getElementById("loadcard").style.display="none";
+  window.addEventListener("DOMContentLoaded",()=>{
     boot();
     if(data.figs) addEmbeddedFigs(data.figs);
   });
@@ -226,76 +254,277 @@ function driverColor(w){ // w in [0,1] expression gain of GD
 function addEmbeddedFigs(figs){
   const box=document.getElementById("figs");
   Object.keys(figs).forEach(name=>{
-    const fig=document.createElement("figure"); fig.style.margin="0"; fig.style.flex="1"; fig.style.minWidth="300px";
-    const im=document.createElement("img"); im.src=figs[name]; im.style.width="100%"; im.style.borderRadius="8px"; im.style.border="1px solid var(--line)";
-    const cap=document.createElement("figcaption"); cap.textContent=name; cap.style.color="var(--mut)"; cap.style.fontSize="11px"; cap.style.fontFamily="var(--mono)"; cap.style.marginTop="4px";
+    const fig=document.createElement("figure"); fig.style.cssText="margin:0;flex:1;min-width:300px";
+    const im=document.createElement("img"); im.src=figs[name]; im.style.cssText="width:100%;border-radius:8px;border:1px solid var(--line)";
+    const cap=document.createElement("figcaption"); cap.textContent=name; cap.style.cssText="color:var(--mut);font-size:11px;font-family:var(--mono);margin-top:4px";
     fig.appendChild(im); fig.appendChild(cap); box.appendChild(fig);
   });
   document.getElementById("figdrop").style.display="none";
 }
 
-const drop = document.getElementById("drop");
-const fileInput = document.getElementById("file");
-drop.addEventListener("click", ()=>fileInput.click());
+// ── folder picker (primary path) ──────────────────────────────────────────────
+document.getElementById("btnOpenFolder").addEventListener("click", openFolder);
+document.getElementById("dirInput").addEventListener("change", e=>scanWebkitDir(e.target.files));
+
+async function openFolder(){
+  if(window.showDirectoryPicker){
+    try{
+      const dh=await window.showDirectoryPicker();
+      await scanDirHandle(dh);
+    }catch(e){
+      if(e.name!=="AbortError") alert("Could not open folder: "+e.message);
+    }
+  } else {
+    document.getElementById("dirInput").click();
+  }
+}
+
+async function scanDirHandle(dirHandle){
+  // walk one level deep: each immediate subdirectory is one run
+  const parsed=[];
+  for await(const [subdirName, handle] of dirHandle.entries()){
+    if(handle.kind!=="directory") continue;
+    for await(const [fname, fhandle] of handle.entries()){
+      if(fname!=="results.json"&&fname!=="trajectories.json") continue;
+      try{
+        const file=await fhandle.getFile();
+        const text=await file.text();
+        let j; try{ j=JSON.parse(text); }catch(e){ continue; }
+        parsed.push({name:subdirName+"/"+fname, data:j, subdir:subdirName});
+      }catch(e){ /* permission or read error — skip */ }
+    }
+  }
+  if(!parsed.length){ alert("No results.json or trajectories.json found in any subdirectory."); return; }
+  finalizeBatch(parsed);
+}
+
+function scanWebkitDir(files){
+  const targets=[];
+  [...files].forEach(f=>{
+    const parts=f.webkitRelativePath.split("/");
+    const fname=parts[parts.length-1];
+    if(fname!=="results.json"&&fname!=="trajectories.json") return;
+    targets.push({file:f, subdir:parts[parts.length-2]});
+  });
+  if(!targets.length){ alert("No results.json or trajectories.json found."); return; }
+  const parsed=[];
+  let pending=targets.length;
+  targets.forEach(({file,subdir})=>{
+    const r=new FileReader();
+    r.onload=()=>{
+      let j; try{ j=JSON.parse(r.result); }catch(e){}
+      if(j) parsed.push({name:subdir+"/"+file.name, data:j, subdir});
+      if(--pending===0) finalizeBatch(parsed);
+    };
+    r.readAsText(file);
+  });
+}
+
+// ── individual file drop (fallback / single-run) ──────────────────────────────
+const drop=document.getElementById("drop");
+const fileInput=document.getElementById("file");
+drop.addEventListener("click",()=>fileInput.click());
 ["dragover","dragenter"].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add("hover");}));
 ["dragleave","drop"].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove("hover");}));
-drop.addEventListener("drop", ev=>handleFiles(ev.dataTransfer.files));
-fileInput.addEventListener("change", ()=>handleFiles(fileInput.files));
+drop.addEventListener("drop",ev=>handleFiles(ev.dataTransfer.files));
+fileInput.addEventListener("change",()=>handleFiles(fileInput.files));
 
 function handleFiles(files){
-  [...files].forEach(f=>{
-    const r = new FileReader();
-    r.onload = ()=>{
-      let j; try{ j = JSON.parse(r.result); }catch(e){ alert("Could not parse "+f.name); return; }
-      if (j && j.maze && (j.train || j.eval)) { S.traj = j; }
-      else if (j && j.logs) { S.logs = j.logs; S.results = j; }     // results.json
-      else if (j && j.episode && j.combined_acc) { S.logs = j; }    // bare logs object
-      else { alert(f.name+": unrecognised JSON (need trajectories.json or results.json)"); return; }
-      boot();
+  const fileArr=[...files]; if(!fileArr.length) return;
+  const parsed=[]; let pending=fileArr.length;
+  fileArr.forEach(f=>{
+    const r=new FileReader();
+    r.onload=()=>{
+      let j; try{ j=JSON.parse(r.result); }catch(e){ alert("Could not parse "+f.name); }
+      if(j) parsed.push({name:f.name, data:j, subdir:null});
+      if(--pending===0) finalizeBatch(parsed);
     };
     r.readAsText(f);
   });
 }
 
-function boot(){
-  if(!S.traj) return;
-  document.getElementById("noState").style.display="none";
+// ── batch assembly ─────────────────────────────────────────────────────────────
+function finalizeBatch(parsed){
+  // Group by seed field first; fall back to subdir name as tie-breaker/grouping key.
+  // This means two files from the same seed directory always merge correctly even
+  // if the seed field differs or is absent.
+  const byKey={};
+  let anon=0;
+  const getOrCreate=key=>{if(!byKey[key])byKey[key]={seed:null,traj:null,logs:null,results:null,subdir:null};return byKey[key];};
+
+  parsed.forEach(({name,data,subdir})=>{
+    // prefer subdir as group key (stable), fall back to seed, then anon
+    const key=subdir!=null?subdir:(data.seed!=null?'s'+data.seed:'run'+(anon++));
+    const run=getOrCreate(key);
+    if(run.subdir==null) run.subdir=subdir;
+
+    if(data.maze&&(data.train||data.eval)){
+      run.traj=data; if(run.seed==null&&data.seed!=null) run.seed=data.seed;
+    } else if(data.logs||data.combined_acc!=null){
+      run.results=data; run.logs=data.logs||null;
+      if(run.seed==null&&data.seed!=null) run.seed=data.seed;
+    } else {
+      console.warn("Unrecognised JSON:", name);
+    }
+  });
+
+  const runs=Object.entries(byKey)
+    .filter(([,r])=>r.traj||r.results)
+    .map(([key,r])=>({...r, key}));
+
+  // sort: numeric seed first, then alphabetic by key
+  runs.sort((a,b)=>{
+    const na=a.seed??null, nb=b.seed??null;
+    if(na!=null&&nb!=null) return na-nb;
+    if(na!=null) return -1;
+    if(nb!=null) return 1;
+    return (a.key??'').localeCompare(b.key??'');
+  });
+
+  if(!runs.length){ alert("No recognisable runs found."); return; }
+  S.runs=runs; S.runIdx=0;
   document.getElementById("loadcard").style.display="none";
-  document.getElementById("playercard").style.display="";
-  document.getElementById("figcard").style.display="";
-  S.geom = computeGeom(S.traj.maze);
-  const m=S.traj;
-  document.getElementById("hdrmeta").textContent =
-    "seed "+m.seed+" · "+(m.untrained?"UNTRAINED":"trained")+" · grid "+m.maze.rows+"×"+m.maze.cols+" · "+
-    (m.train||[]).length+" train · "+(m.eval||[]).length+" eval trials";
-  if(S.logs){ document.getElementById("handoffcard").style.display=""; drawHandoff(); }
-  renderVerdicts();
-  if(S.results && S.results.h5){ document.getElementById("h5card").style.display=""; drawH5(); }
-  if(S.results){ renderSupport(); }
-  setMode(S.mode, true);
+  document.getElementById("noState").style.display="none";
+  renderRunSelector();
+  renderBatchSummary();
+  loadRun(0);
 }
 
+function loadRun(idx){
+  if(idx<0||idx>=S.runs.length) return;
+  S.runIdx=idx; S.trial=0; S.step=0; stop();
+  const run=S.runs[idx];
+  S.traj=run.traj||null; S.logs=run.logs||null; S.results=run.results||null;
+  document.querySelectorAll('#batchtable tr[data-idx]').forEach(tr=>{
+    tr.classList.toggle('active-run',+tr.dataset.idx===idx);
+  });
+  const sel=document.getElementById("runsel");
+  if(sel.style.display!=="none") sel.value=idx;
+  boot();
+}
+
+function renderRunSelector(){
+  const sel=document.getElementById("runsel");
+  if(S.runs.length<2){sel.style.display="none";return;}
+  sel.innerHTML="";
+  S.runs.forEach((run,i)=>{
+    const opt=document.createElement("option");
+    opt.value=i;
+    let lbl=run.subdir||("seed "+(run.seed??i));
+    if(run.results&&run.results.h1) lbl+=" · acc "+fmt(run.results.h1.accuracy);
+    opt.textContent=lbl;
+    sel.appendChild(opt);
+  });
+  sel.style.display=""; sel.value=S.runIdx;
+}
+document.getElementById("runsel").addEventListener("change",e=>loadRun(+e.target.value));
+
+function renderBatchSummary(){
+  const card=document.getElementById("batchcard");
+  if(S.runs.length<2){card.style.display="none";return;}
+  card.style.display="";
+  const runs=S.runs, n=runs.length;
+  const labels=runs.map(r=>r.subdir||(r.seed!=null?"seed "+r.seed:r.key));
+  document.getElementById("batchsubtitle").textContent=n+" runs · "+labels.join(', ');
+
+  const accs=runs.map(r=>r.results&&r.results.h1?r.results.h1.accuracy:null).filter(v=>v!=null);
+  const passRate=(key,sub)=>{
+    const vals=runs.map(r=>{
+      if(!r.results||!r.results[key]) return null;
+      return sub?r.results[key][sub]:r.results[key].pass;
+    }).filter(v=>v!=null);
+    return vals.length?vals.filter(Boolean).length+"/"+vals.length:null;
+  };
+  const arrMean=a=>a.reduce((s,x)=>s+x,0)/a.length;
+  const arrSd=a=>{if(a.length<2)return 0;const m=arrMean(a);return Math.sqrt(a.map(x=>(x-m)**2).reduce((s,x)=>s+x,0)/(a.length-1));};
+  const stat=(lbl,val)=>`<div class="batch-stat"><span class="lbl">${lbl}</span><span class="val">${val}</span></div>`;
+
+  let html=stat("runs",n);
+  if(accs.length) html+=stat("mean H1 acc",fmt(arrMean(accs))+(accs.length>1?" ± "+fmt(arrSd(accs)):""));
+  const h1p=passRate('h1'); if(h1p) html+=stat("H1 pass",h1p);
+  const h2p=passRate('h2'); if(h2p) html+=stat("H2 pass",h2p);
+  const h3p=passRate('h3','dissociation_pass'); if(h3p) html+=stat("H3 pass",h3p);
+  const h6p=passRate('h6'); if(h6p) html+=stat("H6 pass",h6p);
+  document.getElementById("batchstats").innerHTML=html;
+
+  const runLabel=r=>r.subdir||(r.seed!=null?r.seed:r.key);
+  const cols=[
+    {h:"run",    fn:r=>runLabel(r)},
+    {h:"H1 acc", fn:r=>r.results&&r.results.h1?fmt(r.results.h1.accuracy):"—"},
+    {h:"H1",     fn:r=>r.results&&r.results.h1?pillHtml(r.results.h1.pass):"—"},
+    {h:"H2",     fn:r=>r.results&&r.results.h2?pillHtml(r.results.h2.pass):"—"},
+    {h:"H3",     fn:r=>r.results&&r.results.h3?pillHtml(r.results.h3.dissociation_pass):"—"},
+    {h:"H5",     fn:r=>{
+      if(!r.results||!r.results.h5) return "—";
+      const h5=r.results.h5, rec=h5.acc_hab_silenced!=null&&h5.acc_hab_silenced>=0.65;
+      return h5.pass===true?"<span class='pill ok'>✓</span>":rec?"<span class='pill warn'>▲</span>":"<span class='pill bad'>✗</span>";
+    }},
+    {h:"H6",     fn:r=>r.results&&r.results.h6?pillHtml(r.results.h6.pass):"—"},
+  ];
+  const thead="<thead><tr>"+cols.map(c=>"<th>"+c.h+"</th>").join("")+"</tr></thead>";
+  const tbody="<tbody>"+runs.map((run,i)=>
+    "<tr data-idx='"+i+"' class='"+(i===S.runIdx?"active-run":"")+"' onclick='loadRun("+i+")'>"+
+    cols.map(c=>"<td>"+c.fn(run)+"</td>").join("")+
+    "</tr>"
+  ).join("")+"</tbody>";
+  document.getElementById("batchtable").innerHTML=thead+tbody;
+}
+
+// ── boot (render active run) ──────────────────────────────────────────────────
+function boot(){
+  if(!S.traj&&!S.results) return;
+  document.getElementById("noState").style.display="none";
+  document.getElementById("loadcard").style.display="none";
+  document.getElementById("figcard").style.display="";
+
+  if(S.traj){
+    S.geom=computeGeom(S.traj.maze);
+    const m=S.traj;
+    document.getElementById("hdrmeta").textContent=
+      "seed "+m.seed+" · "+(m.untrained?"UNTRAINED":"trained")+" · grid "+m.maze.rows+"×"+m.maze.cols+" · "+
+      (m.train||[]).length+" train · "+(m.eval||[]).length+" eval trials";
+    document.getElementById("playercard").style.display="";
+    setMode(S.mode,true);
+  } else {
+    document.getElementById("hdrmeta").textContent=
+      "seed "+(S.results&&S.results.seed!=null?S.results.seed:"?")+" · results only";
+    document.getElementById("playercard").style.display="none";
+  }
+
+  if(S.logs){document.getElementById("handoffcard").style.display="";drawHandoff();}
+  else{document.getElementById("handoffcard").style.display="none";}
+
+  renderVerdicts();
+
+  if(S.results&&S.results.h5){document.getElementById("h5card").style.display="";drawH5();}
+  else{document.getElementById("h5card").style.display="none";}
+
+  if(S.results){renderSupport();}
+  else{document.getElementById("supportcard").style.display="none";}
+}
+
+// ── geometry ──────────────────────────────────────────────────────────────────
 function computeGeom(maze){
-  const cells = maze.passable;
+  const cells=maze.passable;
   let rmin=1e9,rmax=-1e9,cmin=1e9,cmax=-1e9;
   cells.forEach(([r,c])=>{rmin=Math.min(rmin,r);rmax=Math.max(rmax,r);cmin=Math.min(cmin,c);cmax=Math.max(cmax,c);});
-  const nrows=rmax-rmin+1, ncols=cmax-cmin+1;
-  const VB=360, pad=18;
+  const nrows=rmax-rmin+1,ncols=cmax-cmin+1;
+  const VB=360,pad=18;
   const cell=Math.floor(Math.min((VB-2*pad)/ncols,(VB-2*pad)/nrows));
-  const w=ncols*cell, h=nrows*cell;
-  const ox=(VB-w)/2, oy=(VB-h)/2;
+  const ox=(VB-ncols*cell)/2, oy=(VB-nrows*cell)/2;
   const passSet=new Set(cells.map(([r,c])=>r+","+c));
   const xy=(r,c)=>({x:ox+(c-cmin)*cell+cell/2, y:oy+(r-rmin)*cell+cell/2});
   return {rmin,cmin,nrows,ncols,cell,ox,oy,VB,passSet,xy,
           start:maze.start,junction:maze.junction,l_end:maze.l_end,r_end:maze.r_end};
 }
 
+// ── trial player ──────────────────────────────────────────────────────────────
 const PHASE_COLOR={pre_sample:"var(--presample)",sample:"var(--sample)",delay:"var(--delay)",choice:"var(--choice)"};
-function curTrial(){ const arr=S.mode==="train"?S.traj.train:S.traj.eval; return arr&&arr[S.trial]; }
-function phaseAt(t,i){ if(t.phase && i<t.phase.length) return t.phase[i]; return null; }
+function curTrial(){const arr=S.mode==="train"?S.traj.train:S.traj.eval;return arr&&arr[S.trial];}
+function phaseAt(t,i){if(t.phase&&i<t.phase.length)return t.phase[i];return null;}
 
 function drawMazeBase(){
-  const g=S.geom, svg=document.getElementById("maze");
+  const g=S.geom,svg=document.getElementById("maze");
   svg.innerHTML="";
   for(let r=g.rmin;r<g.rmin+g.nrows;r++)for(let c=g.cmin;c<g.cmin+g.ncols;c++){
     if(!g.passSet.has(r+","+c)) continue;
@@ -308,76 +537,73 @@ function drawMazeBase(){
   svg.appendChild(el("g",{id:"layer-agent"}));
   const lab=(cell,txt,col)=>{const p=g.xy(cell[0],cell[1]);
     const t=el("text",{x:p.x,y:p.y+3,"text-anchor":"middle",fill:col,"font-size":10,"font-weight":700});
-    t.textContent=txt; svg.appendChild(t);};
-  lab(g.start,"S","var(--mut)"); lab(g.l_end,"L","var(--mut)"); lab(g.r_end,"R","var(--mut)");
+    t.textContent=txt;svg.appendChild(t);};
+  lab(g.start,"S","var(--mut)");lab(g.l_end,"L","var(--mut)");lab(g.r_end,"R","var(--mut)");
 }
 
 function renderStep(){
-  const t=curTrial(); if(!t) return;
+  const t=curTrial();if(!t)return;
   const g=S.geom;
-  const nSteps=t.w.length, nPos=t.pos.length;
+  const nSteps=t.w.length,nPos=t.pos.length;
   S.step=Math.max(0,Math.min(S.step,nSteps));
-  const blockedEnd = t.blocked==="L"?g.l_end:g.r_end;
-  const Lblocked = t.blocked==="L";
-  const bl=document.getElementById("layer-blocked"); bl.innerHTML="";
-  const armRow=g.junction[0], cx=g.junction[1];
+  const blockedEnd=t.blocked==="L"?g.l_end:g.r_end;
+  const Lblocked=t.blocked==="L";
+  const bl=document.getElementById("layer-blocked");bl.innerHTML="";
+  const armRow=g.junction[0],cx=g.junction[1];
   for(let c=g.cmin;c<g.cmin+g.ncols;c++){
     if(!g.passSet.has(armRow+","+c)) continue;
-    const onBlocked = Lblocked ? c<cx : c>cx;
-    if(onBlocked && c!==cx){
-      const x=g.ox+(c-g.cmin)*g.cell, y=g.oy+(armRow-g.rmin)*g.cell;
+    const onBlocked=Lblocked?c<cx:c>cx;
+    if(onBlocked&&c!==cx){
+      const x=g.ox+(c-g.cmin)*g.cell,y=g.oy+(armRow-g.rmin)*g.cell;
       bl.appendChild(el("rect",{x,y,width:g.cell,height:g.cell,rx:3,
         fill:"rgba(248,81,73,0.10)",stroke:"rgba(248,81,73,0.35)","stroke-width":1}));
     }
   }
-  const tg=document.getElementById("layer-target"); tg.innerHTML="";
+  const tg=document.getElementById("layer-target");tg.innerHTML="";
   const tp=g.xy(blockedEnd[0],blockedEnd[1]);
   tg.appendChild(el("circle",{cx:tp.x,cy:tp.y,r:g.cell*0.40,fill:"none",stroke:"var(--ok)","stroke-width":2,"stroke-dasharray":"3 3"}));
-  // path: each segment tinted by the GD expression gain (w_gd) at that step ->
-  // shows which system was driving at each point, not just in a separate strip.
-  const pl=document.getElementById("layer-path"); pl.innerHTML="";
+  const pl=document.getElementById("layer-path");pl.innerHTML="";
   const upto=Math.min(S.step,nPos-1);
   for(let i=0;i<upto;i++){
-    const a=t.pos[i], b=t.pos[i+1];
-    const pa=g.xy(a[0],a[1]), pb=g.xy(b[0],b[1]);
-    const wv = i<t.w.length ? t.w[i] : 0;
+    const a=t.pos[i],b=t.pos[i+1];
+    const pa=g.xy(a[0],a[1]),pb=g.xy(b[0],b[1]);
+    const wv=i<t.w.length?t.w[i]:0;
     pl.appendChild(el("line",{x1:pa.x,y1:pa.y,x2:pb.x,y2:pb.y,stroke:driverColor(wv),"stroke-width":3.4,"stroke-linecap":"round",opacity:0.9}));
   }
-  // agent dot also tinted by current w_gd
-  const ag=document.getElementById("layer-agent"); ag.innerHTML="";
+  const ag=document.getElementById("layer-agent");ag.innerHTML="";
   const posIdx=Math.min(S.step,nPos-1);
   const ap=g.xy(t.pos[posIdx][0],t.pos[posIdx][1]);
-  const wNow = t.w.length ? t.w[Math.min(S.step,t.w.length-1)] : 0;
+  const wNow=t.w.length?t.w[Math.min(S.step,t.w.length-1)]:0;
   ag.appendChild(el("circle",{cx:ap.x,cy:ap.y,r:g.cell*0.30,fill:driverColor(wNow),stroke:"#06131f","stroke-width":2}));
   const scrub=document.getElementById("scrub");
-  scrub.max=nSteps; scrub.value=S.step;
+  scrub.max=nSteps;scrub.value=S.step;
   document.getElementById("stepcount").textContent=S.step+" / "+nSteps;
   document.getElementById("drivermk").style.left=(Math.max(0,Math.min(1,wNow))*100)+"%";
-  renderWStrip(t); renderStepKV(t);
+  renderWStrip(t);renderStepKV(t);
 }
 
 function renderWStrip(t){
-  const svg=document.getElementById("wstrip"); svg.innerHTML="";
-  const W=360,H=46,n=t.w.length; if(n===0) return;
+  const svg=document.getElementById("wstrip");svg.innerHTML="";
+  const W=360,H=46,n=t.w.length;if(n===0)return;
   const bw=W/n;
   for(let i=0;i<n;i++){
     const ph=phaseAt(t,i);
-    if(ph){ svg.appendChild(el("rect",{x:i*bw,y:0,width:bw,height:H,fill:PHASE_COLOR[ph],opacity:0.12})); }
+    if(ph){svg.appendChild(el("rect",{x:i*bw,y:0,width:bw,height:H,fill:PHASE_COLOR[ph],opacity:0.12}));}
     const wv=t.w[i];
     svg.appendChild(el("rect",{x:i*bw,y:H-wv*H,width:Math.max(bw,0.6),height:wv*H,fill:driverColor(wv),opacity:0.95}));
   }
   const x=Math.min(S.step,n)*bw;
   svg.appendChild(el("line",{x1:x,y1:0,x2:x,y2:H,stroke:"var(--ink)","stroke-width":1.5}));
-  const lab=el("text",{x:4,y:11,fill:"var(--mut)","font-size":9}); lab.textContent="w_GD"; svg.appendChild(lab);
+  const lab=el("text",{x:4,y:11,fill:"var(--mut)","font-size":9});lab.textContent="w_GD";svg.appendChild(lab);
 }
 
 const ACTION_NAMES=["N","S","E","W","WAIT"];
 function renderTrialKV(){
-  const t=curTrial(); if(!t) return;
+  const t=curTrial();if(!t)return;
   const kv=document.getElementById("trialkv");
   const corr=t.correct;
-  const epi = (S.mode==="train" && t.episode!=null)?"<dt>episode</dt><dd>"+t.episode+"</dd>":"";
-  kv.innerHTML = epi+
+  const epi=(S.mode==="train"&&t.episode!=null)?"<dt>episode</dt><dd>"+t.episode+"</dd>":"";
+  kv.innerHTML=epi+
     "<dt>blocked arm</dt><dd>"+t.blocked+" (sampled "+(t.blocked==="L"?"R":"L")+")</dd>"+
     "<dt>correct target</dt><dd>"+t.blocked+" end</dd>"+
     "<dt>outcome</dt><dd><span class='pill "+(corr?"ok":"bad")+"'>"+(corr?"CORRECT":"incorrect")+"</span></dd>"+
@@ -386,252 +612,216 @@ function renderTrialKV(){
 }
 function renderStepKV(t){
   const kv=document.getElementById("stepkv");
-  const i=Math.min(S.step, t.w.length-1);
+  const i=Math.min(S.step,t.w.length-1);
   if(i<0){kv.innerHTML="";return;}
-  const ph = phaseAt(t,i);
-  const act = (t.a && i<t.a.length)? ACTION_NAMES[t.a[i]] : "—";
-  const pos = t.pos[Math.min(S.step,t.pos.length-1)];
-  const wv = i<t.w.length?t.w[i]:null;
-  const driver = wv==null ? "—" : (wv>=0.5? "goal-directed" : "habitual");
-  kv.innerHTML =
+  const ph=phaseAt(t,i);
+  const act=(t.a&&i<t.a.length)?ACTION_NAMES[t.a[i]]:"—";
+  const pos=t.pos[Math.min(S.step,t.pos.length-1)];
+  const wv=i<t.w.length?t.w[i]:null;
+  kv.innerHTML=
     "<dt>step</dt><dd>"+S.step+"</dd>"+
     "<dt>phase</dt><dd>"+(ph?ph:"(eval — n/a)")+"</dd>"+
     "<dt>position</dt><dd>("+pos[0]+", "+pos[1]+")</dd>"+
     "<dt>action</dt><dd>"+act+"</dd>"+
     "<dt>w_GD</dt><dd>"+(wv!=null?wv.toFixed(3):"—")+"</dd>"+
-    "<dt>driving</dt><dd>"+driver+"</dd>";
+    "<dt>driving</dt><dd>"+(wv==null?"—":wv>=0.5?"goal-directed":"habitual")+"</dd>";
 }
 
+// ── handoff chart ─────────────────────────────────────────────────────────────
 function drawHandoff(){
-  const lg=S.logs, svg=document.getElementById("handoff");
+  const lg=S.logs,svg=document.getElementById("handoff");
   svg.innerHTML="";
   const W=900,H=340,mL=52,mR=52,mT=18,mB=42;
-  const ep=lg.episode, n=ep.length; if(n===0){return;}
-  const xmax=ep[n-1], xmin=ep[0];
-  const X=e=> mL + (W-mL-mR)*((e-xmin)/Math.max(1,(xmax-xmin)));
-  const Yacc=v=> (H-mB) - (H-mB-mT)*v;
-  // handoff window shading: from hab competence onset to w_GD drop onset (H2)
-  const habOnset = firstCross(lg.hab_solo_acc, 0.8, ep);
-  const wPeak = lg.w_gd ? Math.max.apply(null, lg.w_gd) : 0;
-  const wDrop = firstBelow(lg.w_gd, 0.5*wPeak, ep, true);
-  if(habOnset!=null && wDrop!=null && n>1){
-    const x0=X(Math.min(habOnset,wDrop)), x1=X(Math.max(habOnset,wDrop));
-    svg.appendChild(el("rect",{x:x0,y:mT,width:Math.max(0,x1-x0),height:H-mB-mT,
-      fill:"var(--hab)",opacity:0.07}));
+  const ep=lg.episode,n=ep.length;if(n===0)return;
+  const xmax=ep[n-1],xmin=ep[0];
+  const X=e=>mL+(W-mL-mR)*((e-xmin)/Math.max(1,(xmax-xmin)));
+  const Yacc=v=>(H-mB)-(H-mB-mT)*v;
+  const habOnset=firstCross(lg.hab_solo_acc,0.8,ep);
+  const wPeak=lg.w_gd?Math.max.apply(null,lg.w_gd):0;
+  const wDrop=firstBelow(lg.w_gd,0.5*wPeak,ep,true);
+  if(habOnset!=null&&wDrop!=null&&n>1){
+    const x0=X(Math.min(habOnset,wDrop)),x1=X(Math.max(habOnset,wDrop));
+    svg.appendChild(el("rect",{x:x0,y:mT,width:Math.max(0,x1-x0),height:H-mB-mT,fill:"var(--hab)",opacity:0.07}));
   }
   svg.appendChild(el("line",{x1:mL,y1:H-mB,x2:W-mR,y2:H-mB,stroke:"var(--line)"}));
   svg.appendChild(el("line",{x1:mL,y1:mT,x2:mL,y2:H-mB,stroke:"var(--line)"}));
   [0,0.25,0.5,0.75,1].forEach(v=>{
     const y=Yacc(v);
     svg.appendChild(el("line",{x1:mL,y1:y,x2:W-mR,y2:y,stroke:"var(--line)","stroke-dasharray":"2 4",opacity:0.5}));
-    const tx=el("text",{x:mL-8,y:y+3,"text-anchor":"end",fill:"var(--mut)"}); tx.textContent=v.toFixed(2); svg.appendChild(tx);
+    const tx=el("text",{x:mL-8,y:y+3,"text-anchor":"end",fill:"var(--mut)"});tx.textContent=v.toFixed(2);svg.appendChild(tx);
   });
   svg.appendChild(el("line",{x1:mL,y1:Yacc(0.5),x2:W-mR,y2:Yacc(0.5),stroke:"var(--mut)","stroke-dasharray":"5 5",opacity:0.6}));
   const nt=Math.min(6,n);
   for(let k=0;k<nt;k++){
-    const e=xmin+(xmax-xmin)*k/(nt-1||1), x=X(e);
-    const tx=el("text",{x,y:H-mB+16,"text-anchor":"middle",fill:"var(--mut)"}); tx.textContent=Math.round(e); svg.appendChild(tx);
+    const e=xmin+(xmax-xmin)*k/(nt-1||1),x=X(e);
+    const tx=el("text",{x,y:H-mB+16,"text-anchor":"middle",fill:"var(--mut)"});tx.textContent=Math.round(e);svg.appendChild(tx);
   }
-  const xlab=el("text",{x:(mL+W-mR)/2,y:H-6,"text-anchor":"middle",fill:"var(--mut)"}); xlab.textContent="training episode"; svg.appendChild(xlab);
-  // onset markers
-  const vmark=(e,col,dash)=>{ if(e==null)return; const x=X(e);
-    svg.appendChild(el("line",{x1:x,y1:mT,x2:x,y2:H-mB,stroke:col,"stroke-width":1.2,"stroke-dasharray":dash,opacity:0.8})); };
+  const xlab=el("text",{x:(mL+W-mR)/2,y:H-6,"text-anchor":"middle",fill:"var(--mut)"});xlab.textContent="training episode";svg.appendChild(xlab);
+  const vmark=(e,col,dash)=>{if(e==null)return;const x=X(e);
+    svg.appendChild(el("line",{x1:x,y1:mT,x2:x,y2:H-mB,stroke:col,"stroke-width":1.2,"stroke-dasharray":dash,opacity:0.8}));};
   vmark(habOnset,"var(--hab)","4 3");
   vmark(wDrop,"var(--warn)","2 3");
   const series=(arr,col,dash)=>{
-    if(!arr) return; let d="";
-    for(let i=0;i<n;i++){ d+=(i?"L":"M")+X(ep[i])+","+Yacc(arr[i]); }
+    if(!arr)return null;let d="";
+    for(let i=0;i<n;i++){d+=(i?"L":"M")+X(ep[i])+","+Yacc(arr[i]);}
     const p=el("path",{d,fill:"none",stroke:col,"stroke-width":2});
     if(dash)p.setAttribute("stroke-dasharray",dash);
-    svg.appendChild(p);
+    svg.appendChild(p);return p;
   };
-  const SMOOTH_ALPHA=0.15; // EMA over logged eval points (cosmetic only — onset
-                            // markers/verdicts above still use the raw h2 dict)
-  series(ema(lg.hab_solo_acc,SMOOTH_ALPHA),"var(--hab)");
-  series(ema(lg.combined_acc,SMOOTH_ALPHA),"var(--accent)");
-  series(ema(lg.gd_solo_acc,SMOOTH_ALPHA),"var(--gd)","5 4");
-  series(ema(lg.w_gd,SMOOTH_ALPHA),"var(--warn)");
-  series(ema(lg.da_recruit,SMOOTH_ALPHA),"var(--delay)");
-  const trainEps=(S.traj.train||[]).map(t=>t.episode);
+  const ALPHA=0.15;
+  const habPath     =series(ema(lg.hab_solo_acc,ALPHA),"var(--hab)");
+  const combinedPath=series(ema(lg.combined_acc,ALPHA),"var(--accent)");
+  const gdPath      =series(ema(lg.gd_solo_acc,ALPHA),"var(--gd)","5 4");
+  const wgdPath     =series(ema(lg.w_gd,ALPHA),"var(--warn)");
+  const daPath      =series(ema(lg.da_recruit,ALPHA),"var(--delay)");
+  const dotsG=el("g",{});svg.appendChild(dotsG);
+  const trainEps=(S.traj?S.traj.train||[]:[]).map(t=>t.episode);
   for(let i=0;i<n;i++){
-    const cx=X(ep[i]), cy=Yacc(lg.combined_acc[i]);
-    const c=el("circle",{cx,cy,r:4,fill:"var(--accent)",opacity:0.55,style:"cursor:pointer"});
+    const cx=X(ep[i]),cy=Yacc(lg.combined_acc[i]);
+    const c=el("circle",{cx,cy,r:2.5,fill:"var(--accent)",opacity:0.3,style:"cursor:pointer"});
     c.addEventListener("click",()=>{
-      if(!trainEps.length){return;}
+      if(!trainEps.length||!S.traj)return;
       let best=0,bd=1e9;
-      trainEps.forEach((te,k)=>{const d=Math.abs(te-ep[i]); if(d<bd){bd=d;best=k;}});
-      setMode("train",false); selectTrial(best);
+      trainEps.forEach((te,k)=>{const d=Math.abs(te-ep[i]);if(d<bd){bd=d;best=k;}});
+      setMode("train",false);selectTrial(best);
       document.getElementById("playercard").scrollIntoView({behavior:"smooth",block:"start"});
     });
     const ttl=el("title");
     ttl.textContent="ep "+ep[i]+" · combined "+lg.combined_acc[i].toFixed(2)+" · hab-solo "+lg.hab_solo_acc[i].toFixed(2)+" · w_GD "+lg.w_gd[i].toFixed(2);
-    c.appendChild(ttl); svg.appendChild(c);
+    c.appendChild(ttl);dotsG.appendChild(c);
   }
-  // honest readout, preferring the analysis-pipeline H2 dict when present
-  const h2 = S.results && S.results.h2;
+  const pathMap={hab:habPath,combined:combinedPath,gd:gdPath,wgd:wgdPath,da:daPath};
+  document.querySelectorAll('#handoffcard .legend [data-series]').forEach(item=>{
+    item.addEventListener('mouseenter',()=>{
+      const key=item.dataset.series;
+      Object.entries(pathMap).forEach(([k,p])=>{if(!p)return;p.setAttribute('stroke-width',k===key?'3.5':'1');p.setAttribute('opacity',k===key?'1':'0.18');});
+      dotsG.setAttribute('opacity',key==='combined'?'0.8':'0.08');
+    });
+    item.addEventListener('mouseleave',()=>{
+      Object.values(pathMap).forEach(p=>{if(!p)return;p.setAttribute('stroke-width','2');p.removeAttribute('opacity');});
+      dotsG.removeAttribute('opacity');
+    });
+  });
+  const h2=S.results&&S.results.h2;
+  const ho=h2?h2.hab_onset_episode:habOnset;
+  const wd=h2?h2.wgd_drop_onset_episode:wDrop;
   let msg="";
-  const ho = h2 ? h2.hab_onset_episode : habOnset;
-  const wd = h2 ? h2.wgd_drop_onset_episode : wDrop;
-  if(ho!=null && wd!=null){
-    msg = "Habitual-solo crosses 0.80 at ep "+ho+"; w_GD falls below half its peak at ep "+wd+". "+
-          (wd>=ho? "Competence rises before goal-directed expression falls — consistent with a competence-locked handoff (H2)."
-                 : "w_GD drops before habitual competence — inconsistent with H2; inspect.");
-    if(h2) msg += " "+(h2.pass? "H2 criterion: PASS." : "H2 criterion: not met (see verdict row).");
-  } else { msg = "Handoff markers not reached in this run (need longer training / higher accuracy)."; }
-  document.getElementById("handoffread").textContent = msg;
+  if(ho!=null&&wd!=null){
+    msg="Habitual-solo crosses 0.80 at ep "+ho+"; w_GD falls below half its peak at ep "+wd+". "+
+        (wd>=ho?"Competence rises before goal-directed expression falls — consistent with a competence-locked handoff (H2).":
+                "w_GD drops before habitual competence — inconsistent with H2; inspect.");
+    if(h2)msg+=" "+(h2.pass?"H2 criterion: PASS.":"H2 criterion: not met.");
+  }else{msg="Handoff markers not reached in this run.";}
+  document.getElementById("handoffread").textContent=msg;
 }
-function ema(arr,alpha){ // exponential moving average, for display only — never
-  // fed back into the H1-H7 pass/fail logic, which stays on the raw per-eval values.
-  if(!arr||!arr.length) return arr;
-  const out=[arr[0]];
-  for(let i=1;i<arr.length;i++) out.push(alpha*arr[i]+(1-alpha)*out[i-1]);
-  return out;
-}
-function firstCross(arr,thr,ep){ if(!arr)return null; for(let i=0;i<arr.length;i++)if(arr[i]>=thr)return ep[i]; return null; }
-function firstBelow(arr,thr,ep,afterPeak){ if(!arr)return null; let started=!afterPeak,pk=-1;
-  for(let i=0;i<arr.length;i++){ if(arr[i]>=pk)pk=arr[i]; if(afterPeak&&arr[i]>=0.99*pk)started=true; if(started&&arr[i]<thr)return ep[i];} return null; }
+function ema(arr,alpha){if(!arr||!arr.length)return arr;const out=[arr[0]];for(let i=1;i<arr.length;i++)out.push(alpha*arr[i]+(1-alpha)*out[i-1]);return out;}
+function firstCross(arr,thr,ep){if(!arr)return null;for(let i=0;i<arr.length;i++)if(arr[i]>=thr)return ep[i];return null;}
+function firstBelow(arr,thr,ep,afterPeak){if(!arr)return null;let started=!afterPeak,pk=-1;
+  for(let i=0;i<arr.length;i++){if(arr[i]>=pk)pk=arr[i];if(afterPeak&&arr[i]>=0.99*pk)started=true;if(started&&arr[i]<thr)return ep[i];}return null;}
 
-// ----------------------------------------------------------------- verdict pills
+// ── verdict pills ─────────────────────────────────────────────────────────────
 function renderVerdicts(){
-  const box=document.getElementById("verdicts"); box.innerHTML="";
-  const r=S.results; if(!r) return;
-  const add=(label,state,title)=>{ // state: "ok" | "bad" | "warn"
-    const s=document.createElement("span"); s.className="pill "+state; s.textContent=label;
-    if(title)s.title=title; box.appendChild(s);
+  const box=document.getElementById("verdicts");box.innerHTML="";
+  const r=S.results;if(!r)return;
+  const add=(label,state,title)=>{
+    const s=document.createElement("span");s.className="pill "+state;s.textContent=label;
+    if(title)s.title=title;box.appendChild(s);
   };
-  if(r.h1) add("H1 "+(r.h1.pass?"✓":"✗"), r.h1.pass?"ok":"bad",
-               "competence: acc "+fmt(r.h1.accuracy)+" (k="+r.h1.k+"/"+r.h1.n+")");
-  if(r.h2) add("H2 "+(r.h2.pass?"✓":"✗"), r.h2.pass?"ok":"bad", "handoff");
-  if(r.h3) add("H3 "+(r.h3.dissociation_pass?"✓":"✗"), r.h3.dissociation_pass?"ok":"bad",
-               "devaluation dissociation");
-  if(r.h4) add("H4", "warn", "lesion double-dissociation (see panel)");
-  if(r.h5){ // H5 is deliberately three-state: never round a marginal result up to a clean pass
-    const clean=r.h5.pass===true;
-    const recovered=(r.h5.acc_hab_silenced!=null && r.h5.acc_hab_silenced>=0.65);
-    const st = clean? "ok" : (recovered? "warn":"bad");
-    add("H5 "+(clean?"✓":(recovered?"▲ partial":"✗")), st,
-        "accuracy recovered but DA-request rise marginal — honest partial result");
+  if(r.h1)add("H1 "+(r.h1.pass?"✓":"✗"),r.h1.pass?"ok":"bad","competence: acc "+fmt(r.h1.accuracy)+" (k="+r.h1.k+"/"+r.h1.n+")");
+  if(r.h2)add("H2 "+(r.h2.pass?"✓":"✗"),r.h2.pass?"ok":"bad","handoff");
+  if(r.h3)add("H3 "+(r.h3.dissociation_pass?"✓":"✗"),r.h3.dissociation_pass?"ok":"bad","devaluation dissociation");
+  if(r.h4)add("H4","warn","lesion double-dissociation (see panel)");
+  if(r.h5){
+    const clean=r.h5.pass===true,recovered=(r.h5.acc_hab_silenced!=null&&r.h5.acc_hab_silenced>=0.65);
+    add("H5 "+(clean?"✓":recovered?"▲ partial":"✗"),clean?"ok":recovered?"warn":"bad","accuracy recovered but DA-request rise marginal");
   }
-  if(r.h6) add("H6 "+(r.h6.pass?"✓":"✗"), r.h6.pass?"ok":"bad",
-               "delay attractor: decoder "+fmt(r.h6.decoder_acc));
+  if(r.h6)add("H6 "+(r.h6.pass?"✓":"✗"),r.h6.pass?"ok":"bad","delay attractor: decoder "+fmt(r.h6.decoder_acc));
 }
 
-// ----------------------------------------------------------------- H5 honesty panel
+// ── H5 panel ──────────────────────────────────────────────────────────────────
 function drawH5(){
   const h5=S.results.h5;
-  // bar chart: DA-request intact vs silenced, on a shared axis so the (marginal)
-  // delta is shown at true scale and never visually exaggerated.
-  const svg=document.getElementById("h5chart"); svg.innerHTML="";
+  const svg=document.getElementById("h5chart");svg.innerHTML="";
   const W=360,H=180,mL=42,mR=14,mT=14,mB=40;
-  const di=h5.da_request_intact||0, ds=h5.da_request_hab_silenced||0;
-  const top=Math.max(0.2, di, ds)*1.25;
+  const di=h5.da_request_intact||0,ds=h5.da_request_hab_silenced||0;
+  const top=Math.max(0.2,di,ds)*1.25;
   const Y=v=>(H-mB)-(H-mB-mT)*(v/top);
   svg.appendChild(el("line",{x1:mL,y1:H-mB,x2:W-mR,y2:H-mB,stroke:"var(--line)"}));
   svg.appendChild(el("line",{x1:mL,y1:mT,x2:mL,y2:H-mB,stroke:"var(--line)"}));
   [0,top/2,top].forEach(v=>{const y=Y(v);
-    const tx=el("text",{x:mL-6,y:y+3,"text-anchor":"end",fill:"var(--mut)","font-size":9});
-    tx.textContent=v.toFixed(2); svg.appendChild(tx);
+    const tx=el("text",{x:mL-6,y:y+3,"text-anchor":"end",fill:"var(--mut)","font-size":9});tx.textContent=v.toFixed(2);svg.appendChild(tx);
     svg.appendChild(el("line",{x1:mL,y1:y,x2:W-mR,y2:y,stroke:"var(--line)","stroke-dasharray":"2 4",opacity:0.4}));});
   const bars=[["intact",di,"var(--accent)"],["hab silenced",ds,"var(--delay)"]];
-  const slot=(W-mR-mL)/bars.length, bw=slot*0.5;
+  const slot=(W-mR-mL)/bars.length,bw=slot*0.5;
   bars.forEach((b,i)=>{
     const x=mL+slot*i+(slot-bw)/2;
     svg.appendChild(el("rect",{x,y:Y(b[1]),width:bw,height:(H-mB)-Y(b[1]),fill:b[2],opacity:0.9,rx:2}));
-    const tx=el("text",{x:x+bw/2,y:H-mB+14,"text-anchor":"middle",class:"barlabel"}); tx.textContent=b[0]; svg.appendChild(tx);
-    const vl=el("text",{x:x+bw/2,y:Y(b[1])-4,"text-anchor":"middle","font-size":9,fill:"var(--ink)"}); vl.textContent=b[1].toFixed(3); svg.appendChild(vl);
+    const tx=el("text",{x:x+bw/2,y:H-mB+14,"text-anchor":"middle",class:"barlabel"});tx.textContent=b[0];svg.appendChild(tx);
+    const vl=el("text",{x:x+bw/2,y:Y(b[1])-4,"text-anchor":"middle","font-size":9,fill:"var(--ink)"});vl.textContent=b[1].toFixed(3);svg.appendChild(vl);
   });
-  const yl=el("text",{x:mL,y:mT-2,"text-anchor":"start","font-size":9,fill:"var(--mut)"}); yl.textContent="mean DA-request"; svg.appendChild(yl);
+  const yl=el("text",{x:mL,y:mT-2,"text-anchor":"start","font-size":9,fill:"var(--mut)"});yl.textContent="mean DA-request";svg.appendChild(yl);
 
-  // verdict text — explicit, honest, never overstating (per CLAUDE.md §5)
-  const delta=h5.da_request_delta;
-  const accRec=h5.acc_hab_silenced;
+  const delta=h5.da_request_delta,accRec=h5.acc_hab_silenced;
   const v=document.getElementById("h5verdict");
   let head;
-  if(h5.pass===true){
-    head="<span class='pill ok'>clean pass</span>";
-  } else if(accRec!=null && accRec>=0.65 && delta!=null && delta<=0.02){
-    head="<span class='pill warn'>partial / honest</span>";
-  } else {
-    head="<span class='pill bad'>not met</span>";
-  }
-  v.innerHTML = head +
-    " &nbsp; Accuracy after silencing the habitual system: <b>"+fmt(accRec)+"</b>"+
-    (accRec!=null&&accRec>=0.95?" (recovers to ceiling)":"")+
-    ". &nbsp; DA-request change Δ = <b>"+(delta!=null?delta.toFixed(4):"—")+"</b>"+
-    (delta!=null && Math.abs(delta)<0.05 ? " <b>(marginal)</b>" : "")+".";
+  if(h5.pass===true)head="<span class='pill ok'>clean pass</span>";
+  else if(accRec!=null&&accRec>=0.65&&delta!=null&&delta<=0.02)head="<span class='pill warn'>partial / honest</span>";
+  else head="<span class='pill bad'>not met</span>";
+  v.innerHTML=head+" &nbsp; Accuracy after silencing: <b>"+fmt(accRec)+"</b>"+(accRec!=null&&accRec>=0.95?" (ceiling)":"")+
+    ". &nbsp; DA-request Δ = <b>"+(delta!=null?delta.toFixed(4):"—")+"</b>"+(delta!=null&&Math.abs(delta)<0.05?" <b>(marginal)</b>":"")+".";
 
-  document.getElementById("h5note").textContent =
-    "Prediction: silencing the habitual system at maintenance should make the dormant goal-directed "+
-    "trace reactivate, i.e. the DA-request signal should rise. The honest read of this run: accuracy "+
-    "recovers, but the DA-request rise is marginal — this is reported as a partial result, not a clean "+
-    "confirmation of the dormant-trace account. "+
-    (h5.note? "Pipeline note: "+h5.note : "");
+  document.getElementById("h5note").textContent=
+    "Prediction: silencing the habitual system should reactivate the dormant goal-directed trace (DA-request rises). "+
+    "Honest read: accuracy recovers, but the DA-request rise is marginal — partial result, not a clean confirmation. "+
+    (h5.note?"Pipeline note: "+h5.note:"");
 
   const gc=h5.gate_clamp_control;
-  if(gc){
-    document.getElementById("h5clamp").innerHTML =
-      "<b>Gate-clamp control</b> (does recovery reflect a preserved goal-directed policy, or just the gate?): "+
-      "GD clamped open acc = <b>"+fmt(gc.acc_gd_clamped)+"</b>, combined = "+fmt(gc.acc_combined)+
-      ", habit-solo = "+fmt(gc.acc_hab_solo)+", mean w_GD = "+fmt(gc.w_gd_mean)+". "+
-      (gc.policy_preserved
-        ? "GD policy preserved — recovery is consistent with reactivating an intact solution, not a control-loop artifact."
-        : "GD policy NOT preserved — the data cannot yet distinguish genuine reactivation from a gate/control-loop artifact. "+
-          "This is exactly why it is named the first item in Future Research, not asserted as established.");
-  } else {
-    document.getElementById("h5clamp").textContent =
-      "Gate-clamp control not present in this run — the data cannot distinguish genuine reactivation from a control-loop artifact.";
-  }
+  document.getElementById("h5clamp").innerHTML=gc?
+    "<b>Gate-clamp control:</b> GD clamped acc=<b>"+fmt(gc.acc_gd_clamped)+"</b>, combined="+fmt(gc.acc_combined)+
+    ", habit-solo="+fmt(gc.acc_hab_solo)+", w_GD="+fmt(gc.w_gd_mean)+". "+
+    (gc.policy_preserved?"GD policy preserved — consistent with reactivating an intact solution.":
+     "GD policy NOT preserved — cannot yet distinguish genuine reactivation from a gate artifact."):
+    "Gate-clamp control not present — cannot distinguish genuine reactivation from a control-loop artifact.";
 }
 
-// ----------------------------------------------------------------- supporting evidence
+// ── supporting evidence ───────────────────────────────────────────────────────
 function renderSupport(){
   const r=S.results;
   document.getElementById("supportcard").style.display="";
-  const grid=document.getElementById("supportgrid"); grid.innerHTML="";
-  // H1
+  const grid=document.getElementById("supportgrid");grid.innerHTML="";
   if(r.h1){
     const ci=r.h1.ci95||[];
     grid.appendChild(card("H1 — basic competence",
       kvHtml([["accuracy",fmt(r.h1.accuracy)],["k / n",r.h1.k+" / "+r.h1.n],
               ["p-value",r.h1.p_value!=null?r.h1.p_value.toExponential(2):"—"],
-              ["95% CI",ci.length?("["+fmt(ci[0])+", "+fmt(ci[1])+"]"):"—"],
+              ["95% CI",ci.length?"["+fmt(ci[0])+", "+fmt(ci[1])+"]":"—"],
               ["verdict",pillHtml(r.h1.pass)]])));
   }
-  // H3 devaluation
   if(r.h3){
-    const L=r.h3.learning||{}, M=r.h3.maintenance||{};
+    const L=r.h3.learning||{},M=r.h3.maintenance||{};
     grid.appendChild(card("H3 — devaluation dissociation",
       "<svg viewBox='0 0 320 150' style='margin-bottom:6px'>"+devalSvg(L,M)+"</svg>"+
       kvHtml([["learning drop",fmt(L.drop)+" (value-sensitive)"],
               ["maintenance drop",fmt(M.drop)+" (value-free habit)"],
               ["dissociation",pillHtml(r.h3.dissociation_pass)]])));
   }
-  // H4 lesions
   if(r.h4){
     grid.appendChild(card("H4 — lesion double dissociation",
       "<svg viewBox='0 0 320 160'>"+lesionSvg(r.h4)+"</svg>"+
-      "<p class='note'>learning: needs goal-directed system; maintenance: survives GD lesion, needs habit.</p>"));
+      "<p class='note'>learning: needs goal-directed; maintenance: survives GD lesion, needs habit.</p>"));
   }
-  // H6 attractor
   if(r.h6){
     let body=kvHtml([["decoder acc",fmt(r.h6.decoder_acc)+(r.h6.decoder_sd!=null?" ± "+fmt(r.h6.decoder_sd):"")],
-                     ["participation ratio",fmt(r.h6.participation_ratio)],
-                     ["verdict",pillHtml(r.h6.pass)]]);
-    if(r.h6.pca_coords && r.h6.pca_coords.length){
-      body = "<svg viewBox='0 0 320 200'>"+pcaSvg(r.h6)+"</svg>"+body;
-    } else if(r.h6.note){
-      body = "<p class='note'>"+r.h6.note+"</p>"+body;
-    }
-    grid.appendChild(card("H6 — delay-period attractor (sample identity held through delay)", body));
+                     ["participation ratio",fmt(r.h6.participation_ratio)],["verdict",pillHtml(r.h6.pass)]]);
+    if(r.h6.pca_coords&&r.h6.pca_coords.length)body="<svg viewBox='0 0 320 200'>"+pcaSvg(r.h6)+"</svg>"+body;
+    else if(r.h6.note)body="<p class='note'>"+r.h6.note+"</p>"+body;
+    grid.appendChild(card("H6 — delay-period attractor",body));
   }
 }
 
-function card(title,inner){
-  const d=document.createElement("div"); d.className="card"; d.style.padding="14px";
-  d.innerHTML="<h2 style='margin-bottom:10px'>"+title+"</h2>"+inner; return d;
-}
-function kvHtml(rows){ return "<dl class='kv'>"+rows.map(r=>"<dt>"+r[0]+"</dt><dd>"+r[1]+"</dd>").join("")+"</dl>"; }
-function pillHtml(pass){ return "<span class='pill "+(pass?"ok":"bad")+"'>"+(pass?"PASS":"fail")+"</span>"; }
+function card(title,inner){const d=document.createElement("div");d.className="card";d.style.padding="14px";d.innerHTML="<h2 style='margin-bottom:10px'>"+title+"</h2>"+inner;return d;}
+function kvHtml(rows){return "<dl class='kv'>"+rows.map(r=>"<dt>"+r[0]+"</dt><dd>"+r[1]+"</dd>").join("")+"</dl>";}
+function pillHtml(pass){return "<span class='pill "+(pass?"ok":"bad")+"'>"+(pass?"PASS":"fail")+"</span>";}
 
 function devalSvg(L,M){
   const W=320,H=150,mB=24,mT=10,base=H-mB;
@@ -639,10 +829,9 @@ function devalSvg(L,M){
   const Y=v=>base-(base-mT)*(v||0);
   let s="<line x1='34' y1='"+base+"' x2='"+W+"' y2='"+base+"' stroke='var(--line)'/>";
   s+="<line x1='34' y1='"+Y(0.5)+"' x2='"+W+"' y2='"+Y(0.5)+"' stroke='var(--mut)' stroke-dasharray='4 4' opacity='0.5'/>";
-  const slot=(W-34)/groups.length, bw=slot*0.28;
+  const slot=(W-34)/groups.length,bw=slot*0.28;
   groups.forEach((g,i)=>{
-    const x0=34+slot*i+slot*0.1;
-    const before=g[1].before||0, after=g[1].after||0;
+    const x0=34+slot*i+slot*0.1,before=g[1].before||0,after=g[1].after||0;
     s+="<rect x='"+x0+"' y='"+Y(before)+"' width='"+bw+"' height='"+(base-Y(before))+"' fill='var(--accent)' rx='2'/>";
     s+="<rect x='"+(x0+bw+4)+"' y='"+Y(after)+"' width='"+bw+"' height='"+(base-Y(after))+"' fill='var(--warn)' rx='2'/>";
     s+="<text x='"+(x0+bw)+"' y='"+(base+14)+"' text-anchor='middle' fill='var(--mut)' font-size='9'>"+g[0]+"</text>";
@@ -652,12 +841,12 @@ function devalSvg(L,M){
 }
 function lesionSvg(h4){
   const W=320,H=160,mB=34,mT=10,base=H-mB;
-  const conds=["intact","gd","hab","both"], labels=["intact","-GD","-hab","-both"];
+  const conds=["intact","gd","hab","both"],labels=["intact","-GD","-hab","-both"];
   const groups=[["learning","var(--accent)"],["maintenance","var(--gd)"]];
   const Y=v=>base-(base-mT)*(v||0);
   let s="<line x1='30' y1='"+base+"' x2='"+W+"' y2='"+base+"' stroke='var(--line)'/>";
   s+="<line x1='30' y1='"+Y(0.5)+"' x2='"+W+"' y2='"+Y(0.5)+"' stroke='var(--mut)' stroke-dasharray='4 4' opacity='0.5'/>";
-  const slot=(W-30)/conds.length, bw=slot*0.32;
+  const slot=(W-30)/conds.length,bw=slot*0.32;
   conds.forEach((c,i)=>{
     const x0=30+slot*i+slot*0.08;
     groups.forEach((g,j)=>{
@@ -672,49 +861,44 @@ function lesionSvg(h4){
 }
 function pcaSvg(h6){
   const W=320,H=200,pad=24;
-  const co=h6.pca_coords, y=h6.labels||[];
+  const co=h6.pca_coords,y=h6.labels||[];
   let xmn=1e9,xmx=-1e9,ymn=1e9,ymx=-1e9;
   co.forEach(p=>{xmn=Math.min(xmn,p[0]);xmx=Math.max(xmx,p[0]);ymn=Math.min(ymn,p[1]);ymx=Math.max(ymx,p[1]);});
   const sx=v=>pad+(W-2*pad)*((v-xmn)/((xmx-xmn)||1));
   const sy=v=>(H-pad)-(H-2*pad)*((v-ymn)/((ymx-ymn)||1));
   let s="";
-  co.forEach((p,i)=>{
-    const col=y[i]===0?"var(--accent)":"var(--gd)";
-    s+="<circle cx='"+sx(p[0]).toFixed(1)+"' cy='"+sy(p[1]).toFixed(1)+"' r='2.6' fill='"+col+"' opacity='0.6'/>";
-  });
+  co.forEach((p,i)=>{const col=y[i]===0?"var(--accent)":"var(--gd)";s+="<circle cx='"+sx(p[0]).toFixed(1)+"' cy='"+sy(p[1]).toFixed(1)+"' r='2.6' fill='"+col+"' opacity='0.6'/>";});
   s+="<text x='"+pad+"' y='12' fill='var(--accent)' font-size='8'>● blocked=L</text>";
   s+="<text x='110' y='12' fill='var(--gd)' font-size='8'>● blocked=R</text>";
   s+="<text x='"+(W-2)+"' y='"+(H-2)+"' text-anchor='end' fill='var(--mut)' font-size='8'>PC1</text>";
   return s;
 }
 
+// ── mode / trial controls ─────────────────────────────────────────────────────
 function setMode(mode,initial){
-  S.mode=mode; S.trial=0; S.step=0; stop();
+  S.mode=mode;S.trial=0;S.step=0;stop();
   document.getElementById("tabTrain").classList.toggle("active",mode==="train");
   document.getElementById("tabEval").classList.toggle("active",mode==="eval");
   const arr=mode==="train"?S.traj.train:S.traj.eval;
   const sel=document.getElementById("trialsel");
-  sel.min=0; sel.max=Math.max(0,(arr||[]).length-1); sel.value=0;
-  const note=document.getElementById("rulenote");
-  note.innerHTML = "<b>Rule:</b> non-match. The agent samples the open arm, holds it through the delay, "+
-    "then must reach the <b>opposite</b> (blocked) arm — circled in green. "+
-    "Path/agent colour tracks w_GD: <span style='color:var(--hab)'>green = habitual</span> drives, "+
-    "<span style='color:var(--gd)'>orange = goal-directed</span> drives. "+
-    (mode==="eval"?"Eval trials have no phase log; phase reads n/a.":
-                   "Phase shading appears in the w_GD strip below.");
-  drawMazeBase(); selectTrial(0);
+  sel.min=0;sel.max=Math.max(0,(arr||[]).length-1);sel.value=0;
+  document.getElementById("rulenote").innerHTML=
+    "<b>Rule:</b> non-match. Sample open arm → hold through delay → reach the <b>opposite</b> (blocked) arm — circled in green. "+
+    "Path/agent colour tracks w_GD: <span style='color:var(--hab)'>green=habitual</span>, <span style='color:var(--gd)'>orange=goal-directed</span>. "+
+    (mode==="eval"?"Eval trials have no phase log.":"Phase shading in the w_GD strip below.");
+  drawMazeBase();selectTrial(0);
 }
 function selectTrial(i){
   const arr=S.mode==="train"?S.traj.train:S.traj.eval;
   const n=(arr||[]).length;
   i=Math.max(0,Math.min(i,n-1));
-  S.trial=i; S.step=0; stop();
+  S.trial=i;S.step=0;stop();
   document.getElementById("trialsel").value=i;
   const t=arr&&arr[i];
-  const tag = t ? (S.mode==="train"&&t.episode!=null?"ep "+t.episode:"#"+i) : "—";
-  document.getElementById("trialpill").textContent =
+  const tag=t?(S.mode==="train"&&t.episode!=null?"ep "+t.episode:"#"+i):"—";
+  document.getElementById("trialpill").textContent=
     "trial "+(n?i+1:0)+"/"+n+(t?" · "+tag+" · blk "+t.blocked+" · "+(t.correct?"✓":"✗"):"");
-  drawMazeBase(); renderTrialKV(); renderStep();
+  drawMazeBase();renderTrialKV();renderStep();
 }
 document.getElementById("trialsel").addEventListener("input",e=>selectTrial(+e.target.value));
 document.getElementById("trialPrev").addEventListener("click",()=>selectTrial(S.trial-1));
@@ -725,38 +909,34 @@ document.getElementById("scrub").addEventListener("input",e=>{S.step=+e.target.v
 document.getElementById("btnStep").addEventListener("click",()=>{const t=curTrial();if(!t)return;S.step=Math.min(S.step+1,t.w.length);renderStep();});
 document.getElementById("btnPlay").addEventListener("click",togglePlay);
 
-function togglePlay(){ S.playing?stop():play(); }
+function togglePlay(){S.playing?stop():play();}
 function play(){
-  const t=curTrial(); if(!t)return;
-  S.playing=true; document.getElementById("btnPlay").innerHTML="&#10074;&#10074; pause";
+  const t=curTrial();if(!t)return;
+  S.playing=true;document.getElementById("btnPlay").innerHTML="&#10074;&#10074; pause";
   if(S.step>=t.w.length)S.step=0;
-  S.timer=setInterval(()=>{
-    const tt=curTrial();
-    if(S.step>=tt.w.length){stop();return;}
-    S.step++; renderStep();
-  },180);
+  S.timer=setInterval(()=>{const tt=curTrial();if(S.step>=tt.w.length){stop();return;}S.step++;renderStep();},180);
 }
-function stop(){ S.playing=false; clearInterval(S.timer);
-  const b=document.getElementById("btnPlay"); if(b)b.innerHTML="&#9654; play"; }
+function stop(){S.playing=false;clearInterval(S.timer);const b=document.getElementById("btnPlay");if(b)b.innerHTML="&#9654; play";}
 
-const figdrop=document.getElementById("figdrop"), figfile=document.getElementById("figfile");
+// ── figure drop ───────────────────────────────────────────────────────────────
+const figdrop=document.getElementById("figdrop"),figfile=document.getElementById("figfile");
 figdrop.addEventListener("click",()=>figfile.click());
 figfile.addEventListener("change",()=>addFigs(figfile.files));
 ["dragover","dragenter"].forEach(e=>figdrop.addEventListener(e,ev=>ev.preventDefault()));
 figdrop.addEventListener("drop",ev=>{ev.preventDefault();addFigs(ev.dataTransfer.files);});
 function addFigs(files){
   const box=document.getElementById("figs");
-  [...files].forEach(f=>{ if(!f.type.startsWith("image/"))return;
+  [...files].forEach(f=>{if(!f.type.startsWith("image/"))return;
     const url=URL.createObjectURL(f);
-    const fig=document.createElement("figure"); fig.style.margin="0"; fig.style.flex="1"; fig.style.minWidth="300px";
-    const im=document.createElement("img"); im.src=url; im.style.width="100%"; im.style.borderRadius="8px"; im.style.border="1px solid var(--line)";
-    const cap=document.createElement("figcaption"); cap.textContent=f.name; cap.style.color="var(--mut)"; cap.style.fontSize="11px"; cap.style.fontFamily="var(--mono)"; cap.style.marginTop="4px";
-    fig.appendChild(im); fig.appendChild(cap); box.appendChild(fig);
+    const fig=document.createElement("figure");fig.style.cssText="margin:0;flex:1;min-width:300px";
+    const im=document.createElement("img");im.src=url;im.style.cssText="width:100%;border-radius:8px;border:1px solid var(--line)";
+    const cap=document.createElement("figcaption");cap.textContent=f.name;cap.style.cssText="color:var(--mut);font-size:11px;font-family:var(--mono);margin-top:4px";
+    fig.appendChild(im);fig.appendChild(cap);box.appendChild(fig);
   });
 }
 
-function mean(a){return a.length? a.reduce((s,x)=>s+x,0)/a.length : 0;}
-function fmt(v){ return (v==null||isNaN(v))? "—" : (+v).toFixed(2); }
+function mean(a){return a.length?a.reduce((s,x)=>s+x,0)/a.length:0;}
+function fmt(v){return(v==null||isNaN(v))?"—":(+v).toFixed(2);}
 </script>
 </body>
 </html>
