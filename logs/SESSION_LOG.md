@@ -167,3 +167,16 @@ Commit: 17f50a32b25679cecb93ba43520ec0954c17cc59
 - Updated the deadline-reality note, the Code/main/ "DONE, do not modify" file-tree comment, and §10 scope-creep guardrails so Stages 2-7 (E2-E5 ladder) are explicitly back in scope when the user asks, while keeping the mémoire deliverables (§4) visible
 - Left other §10 guardrails (citations, lit-verification detours) and the rest of the operating manual untouched — only the experiment-prohibition language changed
 - Committed (17f50a3) and pushed to origin/allo-ego
+
+## 2026-06-22 — E2-E5 ladder fixes: real scalar split, batch runner, test+viz coverage
+Commit: 4eaf8fc1b45e5b1a0cd8ced5dd877fc6442709f9
+
+- Audited IMPLEMENTATION_ROADMAP.md Steps 5-8 against actual code (subagent, opus): found E2/E3 vacuous (da_expression==da_arbitration, same scalar), E2 scheduled-gate arm inert (scheduled_w never set), no CLI flags or batch runner for any ladder experiment, zero tests touching ladder flags, E0 only 1 seed.
+- model.py: added GDNet.arbitration() (independent w_arb/b_arb readout) so da_split=True genuinely decouples expression-gain from arbitration; da_split=False stays bit-identical (now test-protected).
+- model.py/train.py: scheduled_w moved to a registered buffer, filled each iteration by a fixed da_request-independent ramp (scheduled_w_value) when gate_mode="scheduled" -- rides along in state_dict()/load_state_dict() automatically so analysis.py checkpoint reloads need no special-casing.
+- run_experiment.py: --gate-mode/--da-components/--habit-rule/--habit-obs/--da-split CLI flags.
+- batch_runner.py (new): runs an experiment (E2-E5, E8) x >=5 seeds/arm as concurrent single-thread subprocesses into results/<exp>/<arm>/<ts>_<commit>/seed<N>/, chance-guard summary. Defaults to os.cpu_count() workers @ 1 BLAS thread each -- fixes the ~60%-CPU single-run profile by saturating every core with independent processes instead.
+- Smoke-tested every arm of E2-E5 end-to-end (no crashes, flags propagate correctly, default behaviour unchanged) before handing off.
+- Subagent (sonnet): repaired the stale test suite (126 failed/8 errors -> 554 passed, 0 failed) and added tests/test_ladder_flags.py covering both arms of every ladder flag (Step 7's previously-unmet acceptance criterion).
+- Subagent (sonnet): built Code/visualisations/build_batch_viz.py + batch_visualiser.html + aggregate_arm.py -- per-arm cross-seed aggregation, arm-vs-arm H2/H3/H5 comparison, chance-guard banner, drill-down into the existing per-seed viewer; verified by rendering real batches in headless Firefox (caught and fixed a NaN-in-JSON bug along the way).
+- Committed and pushed to origin/allo-ego (a27e04b..4eaf8fc). Still NOT done: no arm has actually been trained to >=5 seeds at full scale yet (E0 itself is still 1 seed) -- the infrastructure is ready, the real ladder runs are not.
