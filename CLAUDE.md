@@ -93,7 +93,12 @@ committee can challenge.
 
 - **Mechanism:** `W_eff = f(DA) · W` — dopamine modulates *expression* of intact
   learned weights, not the weights themselves. This is what makes the Villet-style
-  instant reactivation possible.
+  instant reactivation possible. **Implementation correction:** the current code applies
+  this gain at the output readout only (`r_out = gain·tanh(h)`), NOT inside the
+  recurrence. The literal `W_eff = f(DA)·W` inside the dynamics is available as
+  `da_gain_mode="recurrent"` and is tested in E9; E3 (da_components) tested the
+  readout-only proxy. Do not relitigate — use the correct terminology when describing
+  which experiment tests which implementation.
 - **Habitual system** learns value-free APE (Greenstreet et al., 2025) + a small
   step-cost/completion bonus. Reward never enters its loss → structural
   devaluation-insensitivity.
@@ -129,6 +134,12 @@ to a sentence you're writing, flag it rather than picking a side.
 ---
 
 ## 4. The writing task (this is the job now)
+
+**New hypothesis H_tau** (E6/E7/E9): DA recruitment increases effective integration
+timescale in the GD network. If any of E6, E7, E9 produce results before the deadline,
+add H_tau to the Results section (prediction: widen units converge faster to decision
+attractors; deepen units are harder to perturb from WM state). E6 tests uniform tau
+shortening; E7 tests asymmetric widen/deepen split; E9 tests recurrent gain + dual tau.
 
 Remaining deliverables, in the order to tackle them:
 
@@ -240,6 +251,8 @@ TODO(verify)**, so the next session doesn't have to re-discover it.
   value-coupled-habit, rank-sweep experiments) are now in scope when the user asks —
   see the deadline-reality update at the top of this file. Still don't launch one of
   these on your own initiative; the user picks which experiment to run.
+- E6 (uniform-tau DA modulation), E7 (widen/deepen DA tau), E9 (full Naudé: recurrent
+  gain + dual tau) — in scope; don't launch without the user picking which to run.
 - Do not modify `Code/main/` to chase a cleaner H5 result *for the existing Stage-1
   write-up* — that result is reported as-is (§5). Modifying the code to run a genuinely
   new experiment the user has asked for is fine.
