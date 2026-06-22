@@ -39,11 +39,11 @@ class TestConfigToDict:
 
     def test_default_delay_start(self):
         d = Config().to_dict()
-        assert d["delay_start"] == 5
+        assert d["delay_start"] == 15
 
     def test_default_delay_max(self):
         d = Config().to_dict()
-        assert d["delay_max"] == 15
+        assert d["delay_max"] == 40
 
     def test_default_n_actions(self):
         d = Config().to_dict()
@@ -55,11 +55,11 @@ class TestConfigToDict:
 
     def test_default_n_gd(self):
         d = Config().to_dict()
-        assert d["n_gd"] == 256
+        assert d["n_gd"] == 512
 
     def test_default_n_hab(self):
         d = Config().to_dict()
-        assert d["n_hab"] == 256
+        assert d["n_hab"] == 512
 
     def test_default_batch_size(self):
         d = Config().to_dict()
@@ -71,7 +71,7 @@ class TestConfigToDict:
 
     def test_default_gamma(self):
         d = Config().to_dict()
-        assert d["gamma"] == pytest.approx(0.95)
+        assert d["gamma"] == pytest.approx(0.99)
 
     # --- Mutation isolation ---
 
@@ -105,7 +105,7 @@ class TestConfigToDict:
         for key in list(d1.keys()):
             d1[key] = None
         # d2 should be untouched
-        assert d2["delay_start"] == 5
+        assert d2["delay_start"] == 15
 
     # --- Custom field values ---
 

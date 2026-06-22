@@ -9,7 +9,7 @@
     --bg:#0e1117; --panel:#161b22; --panel2:#1c2230; --ink:#e6edf3; --mut:#8b949e;
     --line:#30363d; --accent:#58a6ff; --gd:#d2691e; --hab:#3fb950; --warn:#f85149;
     --presample:#6e7681; --sample:#58a6ff; --delay:#bc8cff; --choice:#f0a35e;
-    --ok:#3fb950; --bad:#f85149;
+    --ok:#3fb950; --bad:#f85149; --warnamber:#d29922;
     --r:10px; --mono:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
     --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   }
@@ -21,6 +21,7 @@
   main{max-width:1180px;margin:0 auto;padding:22px;display:flex;flex-direction:column;gap:22px}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px}
   .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin:0 0 14px;font-weight:650}
+  .card h2 .sub{text-transform:none;letter-spacing:0;font-weight:400;color:var(--mut);font-size:12px}
   #drop{border:1.5px dashed var(--line);border-radius:var(--r);padding:34px;text-align:center;color:var(--mut);cursor:pointer;transition:.15s}
   #drop.hover{border-color:var(--accent);color:var(--ink);background:var(--panel2)}
   #drop b{color:var(--ink)}
@@ -44,6 +45,9 @@
   .pill{font-family:var(--mono);font-size:12px;padding:3px 9px;border-radius:20px;border:1px solid var(--line)}
   .pill.ok{color:var(--ok);border-color:var(--ok)}
   .pill.bad{color:var(--bad);border-color:var(--bad)}
+  .pill.warn{color:var(--warnamber);border-color:var(--warnamber)}
+  .verdicts{display:flex;gap:8px;flex-wrap:wrap}
+  .verdicts .pill{cursor:default}
   .sidebar{flex:1;min-width:260px;display:flex;flex-direction:column;gap:14px}
   .kv{display:grid;grid-template-columns:auto 1fr;gap:5px 14px;font-family:var(--mono);font-size:12.5px}
   .kv dt{color:var(--mut)}
@@ -58,13 +62,28 @@
   code{font-family:var(--mono);background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
   .tabbtn{background:none;border:none;border-bottom:2px solid transparent;border-radius:0;padding:6px 4px;color:var(--mut)}
   .tabbtn.active{color:var(--ink);border-bottom-color:var(--accent)}
+  .driverbar{display:flex;align-items:center;gap:10px;margin-top:10px;font-family:var(--mono);font-size:12px;color:var(--mut)}
+  .driverbar .track{flex:1;height:12px;border-radius:6px;border:1px solid var(--line);
+    background:linear-gradient(90deg,var(--hab),var(--gd));position:relative}
+  .driverbar .track .mk{position:absolute;top:-3px;width:2px;height:18px;background:var(--ink)}
+  .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+  .h5card{border-left:3px solid var(--warnamber)}
+  .h5verdict{font-size:13px;line-height:1.55;margin:0 0 4px}
+  .note{font-size:12px;color:var(--mut);line-height:1.5}
+  .barlabel{font-family:var(--mono);font-size:11px;fill:var(--mut)}
 </style>
 </head>
 <body>
 <header>
   <h1>Dual-system T-maze</h1>
   <span class="meta" id="hdrmeta">no data loaded</span>
+  <span class="verdicts" id="verdicts"></span>
 </header>
+
+<!-- EMBEDDED_DATA: build_viz.py replaces the object below with one experiment's
+     {traj, logs, results, figs} so this file is fully self-contained. Left empty
+     ({}), this file behaves exactly like the original drag-and-drop visualiser. -->
+<script id="embedded-data" type="application/json">{}</script>
 
 <main>
   <div class="card" id="loadcard">
@@ -72,12 +91,12 @@
     <label id="drop">
       <input type="file" id="file" multiple accept=".json">
       Drop <b>trajectories.json</b> (and optionally <b>results.json</b>) here, or click to choose.
-      <div class="hint">trajectories.json drives the maze player. results.json adds the across-training handoff chart.</div>
+      <div class="hint">trajectories.json drives the maze player. results.json adds the handoff chart and the H1/H3/H4/H5/H6 panels.</div>
     </label>
   </div>
 
   <div class="card" id="handoffcard" style="display:none">
-    <h2>The handoff — control transfer across training</h2>
+    <h2>H2 — the handoff <span class="sub">competence-locked control transfer across training (the core claim) — lines are EMA-smoothed (&alpha;=0.15), dots are the raw per-eval values</span></h2>
     <div class="chartwrap">
       <svg id="handoff" viewBox="0 0 900 340" preserveAspectRatio="xMidYMid meet"></svg>
     </div>
@@ -85,22 +104,23 @@
       <span><span class="swatch" style="background:var(--hab)"></span>habitual-solo accuracy</span>
       <span><span class="swatch" style="background:var(--accent)"></span>combined accuracy</span>
       <span><span class="swatch" style="background:var(--gd);height:0;border-top:2px dashed var(--gd)"></span>goal-directed-solo</span>
-      <span><span class="swatch" style="background:var(--warn)"></span>w_GD (GD expression)</span>
+      <span><span class="swatch" style="background:var(--warn)"></span>w_GD (GD expression gain)</span>
       <span><span class="swatch" style="background:var(--delay)"></span>DA-request</span>
-      <span style="color:var(--ink)">click a point &rarr; load that episode below</span>
+      <span style="color:var(--ink)">click a point &rarr; load nearest episode below</span>
     </div>
     <p class="hint" id="handoffread"></p>
   </div>
 
   <div class="card" id="playercard" style="display:none">
-    <h2>Trial player</h2>
+    <h2>Trial player <span class="sub">who is driving? agent &amp; path tint from green (habitual) to orange (goal-directed) by w_GD</span></h2>
     <div class="controls" style="margin-top:0;margin-bottom:14px">
       <button class="tabbtn active" id="tabTrain">training trials</button>
       <button class="tabbtn" id="tabEval">final-policy (eval) trials</button>
       <span style="flex:1"></span>
-      <label style="color:var(--mut);font-family:var(--mono);font-size:12px">trial
-        <select id="trialsel"></select>
-      </label>
+      <button id="trialPrev" title="previous trial">&#9664;</button>
+      <input type="range" id="trialsel" min="0" max="0" value="0" style="min-width:140px">
+      <button id="trialNext" title="next trial">&#9654;</button>
+      <span class="pill" id="trialpill">trial 0/0</span>
     </div>
 
     <div class="player">
@@ -119,6 +139,11 @@
           <span><span class="dot" style="background:var(--delay)"></span>delay</span>
           <span><span class="dot" style="background:var(--choice)"></span>choice</span>
         </div>
+        <div class="driverbar">
+          <span style="color:var(--hab)">habitual</span>
+          <span class="track"><span class="mk" id="drivermk" style="left:0%"></span></span>
+          <span style="color:var(--gd)">goal-directed</span>
+        </div>
       </div>
 
       <div class="sidebar">
@@ -128,6 +153,31 @@
       </div>
     </div>
   </div>
+
+  <div class="card h5card" id="h5card" style="display:none">
+    <h2>H5 — reactivation after silencing the habitual system <span class="sub">the project's most nuanced result — reported honestly, not rounded up</span></h2>
+    <div class="grid2">
+      <div>
+        <svg id="h5chart" viewBox="0 0 360 180" preserveAspectRatio="xMidYMid meet"></svg>
+        <div class="legend" style="margin-top:4px">
+          <span><span class="swatch" style="background:var(--accent)"></span>intact</span>
+          <span><span class="swatch" style="background:var(--delay)"></span>habitual silenced</span>
+        </div>
+      </div>
+      <div>
+        <p class="h5verdict" id="h5verdict"></p>
+        <p class="note" id="h5note"></p>
+        <p class="note" id="h5clamp" style="margin-top:8px"></p>
+      </div>
+    </div>
+  </div>
+
+  <details id="supportcard" style="display:none">
+    <summary>Supporting evidence — H1 competence · H3 devaluation · H4 lesions · H6 attractor</summary>
+    <div class="body">
+      <div class="grid2" id="supportgrid" style="margin-top:14px"></div>
+    </div>
+  </details>
 
   <details id="figcard" style="display:none">
     <summary>Static figures (from the analysis pipeline)</summary>
@@ -146,7 +196,43 @@
 
 <script>
 "use strict";
-const S = { traj:null, logs:null, mode:"train", trial:0, step:0, playing:false, timer:null, geom:null };
+const S = { traj:null, logs:null, results:null, mode:"train", trial:0, step:0, playing:false, timer:null, geom:null };
+const SVGNS="http://www.w3.org/2000/svg";
+function el(tag,attrs){const e=document.createElementNS(SVGNS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);return e;}
+
+// ---- colour helpers: interpolate habitual(green) -> goal-directed(orange) by w_gd
+const GD_RGB=[0xd2,0x69,0x1e], HAB_RGB=[0x3f,0xb9,0x50];
+function driverColor(w){ // w in [0,1] expression gain of GD
+  const t=Math.max(0,Math.min(1,w));
+  const c=GD_RGB.map((g,i)=>Math.round(HAB_RGB[i]+(g-HAB_RGB[i])*t));
+  return "rgb("+c[0]+","+c[1]+","+c[2]+")";
+}
+
+// If build_viz.py embedded data, load it straight away and skip drag/drop entirely.
+(function loadEmbedded(){
+  let data;
+  try{ data = JSON.parse(document.getElementById("embedded-data").textContent); }catch(e){ return; }
+  if(!data || !data.traj) return;
+  S.traj = data.traj;
+  if(data.logs) S.logs = data.logs;
+  if(data.results) S.results = data.results;
+  document.getElementById("loadcard").style.display = "none";
+  window.addEventListener("DOMContentLoaded", ()=>{
+    boot();
+    if(data.figs) addEmbeddedFigs(data.figs);
+  });
+})();
+
+function addEmbeddedFigs(figs){
+  const box=document.getElementById("figs");
+  Object.keys(figs).forEach(name=>{
+    const fig=document.createElement("figure"); fig.style.margin="0"; fig.style.flex="1"; fig.style.minWidth="300px";
+    const im=document.createElement("img"); im.src=figs[name]; im.style.width="100%"; im.style.borderRadius="8px"; im.style.border="1px solid var(--line)";
+    const cap=document.createElement("figcaption"); cap.textContent=name; cap.style.color="var(--mut)"; cap.style.fontSize="11px"; cap.style.fontFamily="var(--mono)"; cap.style.marginTop="4px";
+    fig.appendChild(im); fig.appendChild(cap); box.appendChild(fig);
+  });
+  document.getElementById("figdrop").style.display="none";
+}
 
 const drop = document.getElementById("drop");
 const fileInput = document.getElementById("file");
@@ -162,8 +248,8 @@ function handleFiles(files){
     r.onload = ()=>{
       let j; try{ j = JSON.parse(r.result); }catch(e){ alert("Could not parse "+f.name); return; }
       if (j && j.maze && (j.train || j.eval)) { S.traj = j; }
-      else if (j && j.logs) { S.logs = j.logs; }
-      else if (j && j.episode && j.combined_acc) { S.logs = j; }
+      else if (j && j.logs) { S.logs = j.logs; S.results = j; }     // results.json
+      else if (j && j.episode && j.combined_acc) { S.logs = j; }    // bare logs object
       else { alert(f.name+": unrecognised JSON (need trajectories.json or results.json)"); return; }
       boot();
     };
@@ -180,9 +266,12 @@ function boot(){
   S.geom = computeGeom(S.traj.maze);
   const m=S.traj;
   document.getElementById("hdrmeta").textContent =
-    "seed "+m.seed+" \u00b7 "+(m.untrained?"UNTRAINED":"trained")+" \u00b7 grid "+m.maze.rows+"\u00d7"+m.maze.cols+" \u00b7 "+
-    (m.train||[]).length+" train \u00b7 "+(m.eval||[]).length+" eval trials";
+    "seed "+m.seed+" · "+(m.untrained?"UNTRAINED":"trained")+" · grid "+m.maze.rows+"×"+m.maze.cols+" · "+
+    (m.train||[]).length+" train · "+(m.eval||[]).length+" eval trials";
   if(S.logs){ document.getElementById("handoffcard").style.display=""; drawHandoff(); }
+  renderVerdicts();
+  if(S.results && S.results.h5){ document.getElementById("h5card").style.display=""; drawH5(); }
+  if(S.results){ renderSupport(); }
   setMode(S.mode, true);
 }
 
@@ -202,8 +291,6 @@ function computeGeom(maze){
 }
 
 const PHASE_COLOR={pre_sample:"var(--presample)",sample:"var(--sample)",delay:"var(--delay)",choice:"var(--choice)"};
-const SVGNS="http://www.w3.org/2000/svg";
-function el(tag,attrs){const e=document.createElementNS(SVGNS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);return e;}
 function curTrial(){ const arr=S.mode==="train"?S.traj.train:S.traj.eval; return arr&&arr[S.trial]; }
 function phaseAt(t,i){ if(t.phase && i<t.phase.length) return t.phase[i]; return null; }
 
@@ -246,22 +333,26 @@ function renderStep(){
   const tg=document.getElementById("layer-target"); tg.innerHTML="";
   const tp=g.xy(blockedEnd[0],blockedEnd[1]);
   tg.appendChild(el("circle",{cx:tp.x,cy:tp.y,r:g.cell*0.40,fill:"none",stroke:"var(--ok)","stroke-width":2,"stroke-dasharray":"3 3"}));
+  // path: each segment tinted by the GD expression gain (w_gd) at that step ->
+  // shows which system was driving at each point, not just in a separate strip.
   const pl=document.getElementById("layer-path"); pl.innerHTML="";
   const upto=Math.min(S.step,nPos-1);
   for(let i=0;i<upto;i++){
     const a=t.pos[i], b=t.pos[i+1];
     const pa=g.xy(a[0],a[1]), pb=g.xy(b[0],b[1]);
-    const ph = phaseAt(t,i);
-    const col = ph? PHASE_COLOR[ph] : "var(--accent)";
-    pl.appendChild(el("line",{x1:pa.x,y1:pa.y,x2:pb.x,y2:pb.y,stroke:col,"stroke-width":3,"stroke-linecap":"round",opacity:0.85}));
+    const wv = i<t.w.length ? t.w[i] : 0;
+    pl.appendChild(el("line",{x1:pa.x,y1:pa.y,x2:pb.x,y2:pb.y,stroke:driverColor(wv),"stroke-width":3.4,"stroke-linecap":"round",opacity:0.9}));
   }
+  // agent dot also tinted by current w_gd
   const ag=document.getElementById("layer-agent"); ag.innerHTML="";
   const posIdx=Math.min(S.step,nPos-1);
   const ap=g.xy(t.pos[posIdx][0],t.pos[posIdx][1]);
-  ag.appendChild(el("circle",{cx:ap.x,cy:ap.y,r:g.cell*0.28,fill:"var(--accent)",stroke:"#06131f","stroke-width":2}));
+  const wNow = t.w.length ? t.w[Math.min(S.step,t.w.length-1)] : 0;
+  ag.appendChild(el("circle",{cx:ap.x,cy:ap.y,r:g.cell*0.30,fill:driverColor(wNow),stroke:"#06131f","stroke-width":2}));
   const scrub=document.getElementById("scrub");
   scrub.max=nSteps; scrub.value=S.step;
   document.getElementById("stepcount").textContent=S.step+" / "+nSteps;
+  document.getElementById("drivermk").style.left=(Math.max(0,Math.min(1,wNow))*100)+"%";
   renderWStrip(t); renderStepKV(t);
 }
 
@@ -273,7 +364,7 @@ function renderWStrip(t){
     const ph=phaseAt(t,i);
     if(ph){ svg.appendChild(el("rect",{x:i*bw,y:0,width:bw,height:H,fill:PHASE_COLOR[ph],opacity:0.12})); }
     const wv=t.w[i];
-    svg.appendChild(el("rect",{x:i*bw,y:H-wv*H,width:Math.max(bw,0.6),height:wv*H,fill:"var(--warn)",opacity:0.9}));
+    svg.appendChild(el("rect",{x:i*bw,y:H-wv*H,width:Math.max(bw,0.6),height:wv*H,fill:driverColor(wv),opacity:0.95}));
   }
   const x=Math.min(S.step,n)*bw;
   svg.appendChild(el("line",{x1:x,y1:0,x2:x,y2:H,stroke:"var(--ink)","stroke-width":1.5}));
@@ -298,14 +389,17 @@ function renderStepKV(t){
   const i=Math.min(S.step, t.w.length-1);
   if(i<0){kv.innerHTML="";return;}
   const ph = phaseAt(t,i);
-  const act = (t.a && i<t.a.length)? ACTION_NAMES[t.a[i]] : "\u2014";
+  const act = (t.a && i<t.a.length)? ACTION_NAMES[t.a[i]] : "—";
   const pos = t.pos[Math.min(S.step,t.pos.length-1)];
+  const wv = i<t.w.length?t.w[i]:null;
+  const driver = wv==null ? "—" : (wv>=0.5? "goal-directed" : "habitual");
   kv.innerHTML =
     "<dt>step</dt><dd>"+S.step+"</dd>"+
-    "<dt>phase</dt><dd>"+(ph?ph:"(eval \u2014 n/a)")+"</dd>"+
+    "<dt>phase</dt><dd>"+(ph?ph:"(eval — n/a)")+"</dd>"+
     "<dt>position</dt><dd>("+pos[0]+", "+pos[1]+")</dd>"+
     "<dt>action</dt><dd>"+act+"</dd>"+
-    "<dt>w_GD</dt><dd>"+(i<t.w.length?t.w[i].toFixed(3):"\u2014")+"</dd>";
+    "<dt>w_GD</dt><dd>"+(wv!=null?wv.toFixed(3):"—")+"</dd>"+
+    "<dt>driving</dt><dd>"+driver+"</dd>";
 }
 
 function drawHandoff(){
@@ -316,6 +410,15 @@ function drawHandoff(){
   const xmax=ep[n-1], xmin=ep[0];
   const X=e=> mL + (W-mL-mR)*((e-xmin)/Math.max(1,(xmax-xmin)));
   const Yacc=v=> (H-mB) - (H-mB-mT)*v;
+  // handoff window shading: from hab competence onset to w_GD drop onset (H2)
+  const habOnset = firstCross(lg.hab_solo_acc, 0.8, ep);
+  const wPeak = lg.w_gd ? Math.max.apply(null, lg.w_gd) : 0;
+  const wDrop = firstBelow(lg.w_gd, 0.5*wPeak, ep, true);
+  if(habOnset!=null && wDrop!=null && n>1){
+    const x0=X(Math.min(habOnset,wDrop)), x1=X(Math.max(habOnset,wDrop));
+    svg.appendChild(el("rect",{x:x0,y:mT,width:Math.max(0,x1-x0),height:H-mB-mT,
+      fill:"var(--hab)",opacity:0.07}));
+  }
   svg.appendChild(el("line",{x1:mL,y1:H-mB,x2:W-mR,y2:H-mB,stroke:"var(--line)"}));
   svg.appendChild(el("line",{x1:mL,y1:mT,x2:mL,y2:H-mB,stroke:"var(--line)"}));
   [0,0.25,0.5,0.75,1].forEach(v=>{
@@ -330,6 +433,11 @@ function drawHandoff(){
     const tx=el("text",{x,y:H-mB+16,"text-anchor":"middle",fill:"var(--mut)"}); tx.textContent=Math.round(e); svg.appendChild(tx);
   }
   const xlab=el("text",{x:(mL+W-mR)/2,y:H-6,"text-anchor":"middle",fill:"var(--mut)"}); xlab.textContent="training episode"; svg.appendChild(xlab);
+  // onset markers
+  const vmark=(e,col,dash)=>{ if(e==null)return; const x=X(e);
+    svg.appendChild(el("line",{x1:x,y1:mT,x2:x,y2:H-mB,stroke:col,"stroke-width":1.2,"stroke-dasharray":dash,opacity:0.8})); };
+  vmark(habOnset,"var(--hab)","4 3");
+  vmark(wDrop,"var(--warn)","2 3");
   const series=(arr,col,dash)=>{
     if(!arr) return; let d="";
     for(let i=0;i<n;i++){ d+=(i?"L":"M")+X(ep[i])+","+Yacc(arr[i]); }
@@ -337,11 +445,13 @@ function drawHandoff(){
     if(dash)p.setAttribute("stroke-dasharray",dash);
     svg.appendChild(p);
   };
-  series(lg.hab_solo_acc,"var(--hab)");
-  series(lg.combined_acc,"var(--accent)");
-  series(lg.gd_solo_acc,"var(--gd)","5 4");
-  series(lg.w_gd,"var(--warn)");
-  series(lg.da_recruit,"var(--delay)");
+  const SMOOTH_ALPHA=0.15; // EMA over logged eval points (cosmetic only — onset
+                            // markers/verdicts above still use the raw h2 dict)
+  series(ema(lg.hab_solo_acc,SMOOTH_ALPHA),"var(--hab)");
+  series(ema(lg.combined_acc,SMOOTH_ALPHA),"var(--accent)");
+  series(ema(lg.gd_solo_acc,SMOOTH_ALPHA),"var(--gd)","5 4");
+  series(ema(lg.w_gd,SMOOTH_ALPHA),"var(--warn)");
+  series(ema(lg.da_recruit,SMOOTH_ALPHA),"var(--delay)");
   const trainEps=(S.traj.train||[]).map(t=>t.episode);
   for(let i=0;i<n;i++){
     const cx=X(ep[i]), cy=Yacc(lg.combined_acc[i]);
@@ -354,49 +464,261 @@ function drawHandoff(){
       document.getElementById("playercard").scrollIntoView({behavior:"smooth",block:"start"});
     });
     const ttl=el("title");
-    ttl.textContent="ep "+ep[i]+" \u00b7 combined "+lg.combined_acc[i].toFixed(2)+" \u00b7 hab-solo "+lg.hab_solo_acc[i].toFixed(2)+" \u00b7 w_GD "+lg.w_gd[i].toFixed(2);
+    ttl.textContent="ep "+ep[i]+" · combined "+lg.combined_acc[i].toFixed(2)+" · hab-solo "+lg.hab_solo_acc[i].toFixed(2)+" · w_GD "+lg.w_gd[i].toFixed(2);
     c.appendChild(ttl); svg.appendChild(c);
   }
-  const habOnset = firstCross(lg.hab_solo_acc, 0.8, ep);
-  const wPeak = Math.max.apply(null, lg.w_gd);
-  const wDrop = firstBelow(lg.w_gd, 0.5*wPeak, ep, true);
+  // honest readout, preferring the analysis-pipeline H2 dict when present
+  const h2 = S.results && S.results.h2;
   let msg="";
-  if(habOnset!=null && wDrop!=null){
-    msg = "Habitual-solo crosses 0.80 at ep "+habOnset+"; w_GD falls below half its peak at ep "+wDrop+". "+
-          (wDrop>=habOnset? "Order is consistent with a competence-locked handoff (H2)."
-                          : "w_GD drops before habitual competence \u2014 inconsistent with H2; inspect.");
+  const ho = h2 ? h2.hab_onset_episode : habOnset;
+  const wd = h2 ? h2.wgd_drop_onset_episode : wDrop;
+  if(ho!=null && wd!=null){
+    msg = "Habitual-solo crosses 0.80 at ep "+ho+"; w_GD falls below half its peak at ep "+wd+". "+
+          (wd>=ho? "Competence rises before goal-directed expression falls — consistent with a competence-locked handoff (H2)."
+                 : "w_GD drops before habitual competence — inconsistent with H2; inspect.");
+    if(h2) msg += " "+(h2.pass? "H2 criterion: PASS." : "H2 criterion: not met (see verdict row).");
   } else { msg = "Handoff markers not reached in this run (need longer training / higher accuracy)."; }
   document.getElementById("handoffread").textContent = msg;
+}
+function ema(arr,alpha){ // exponential moving average, for display only — never
+  // fed back into the H1-H7 pass/fail logic, which stays on the raw per-eval values.
+  if(!arr||!arr.length) return arr;
+  const out=[arr[0]];
+  for(let i=1;i<arr.length;i++) out.push(alpha*arr[i]+(1-alpha)*out[i-1]);
+  return out;
 }
 function firstCross(arr,thr,ep){ if(!arr)return null; for(let i=0;i<arr.length;i++)if(arr[i]>=thr)return ep[i]; return null; }
 function firstBelow(arr,thr,ep,afterPeak){ if(!arr)return null; let started=!afterPeak,pk=-1;
   for(let i=0;i<arr.length;i++){ if(arr[i]>=pk)pk=arr[i]; if(afterPeak&&arr[i]>=0.99*pk)started=true; if(started&&arr[i]<thr)return ep[i];} return null; }
+
+// ----------------------------------------------------------------- verdict pills
+function renderVerdicts(){
+  const box=document.getElementById("verdicts"); box.innerHTML="";
+  const r=S.results; if(!r) return;
+  const add=(label,state,title)=>{ // state: "ok" | "bad" | "warn"
+    const s=document.createElement("span"); s.className="pill "+state; s.textContent=label;
+    if(title)s.title=title; box.appendChild(s);
+  };
+  if(r.h1) add("H1 "+(r.h1.pass?"✓":"✗"), r.h1.pass?"ok":"bad",
+               "competence: acc "+fmt(r.h1.accuracy)+" (k="+r.h1.k+"/"+r.h1.n+")");
+  if(r.h2) add("H2 "+(r.h2.pass?"✓":"✗"), r.h2.pass?"ok":"bad", "handoff");
+  if(r.h3) add("H3 "+(r.h3.dissociation_pass?"✓":"✗"), r.h3.dissociation_pass?"ok":"bad",
+               "devaluation dissociation");
+  if(r.h4) add("H4", "warn", "lesion double-dissociation (see panel)");
+  if(r.h5){ // H5 is deliberately three-state: never round a marginal result up to a clean pass
+    const clean=r.h5.pass===true;
+    const recovered=(r.h5.acc_hab_silenced!=null && r.h5.acc_hab_silenced>=0.65);
+    const st = clean? "ok" : (recovered? "warn":"bad");
+    add("H5 "+(clean?"✓":(recovered?"▲ partial":"✗")), st,
+        "accuracy recovered but DA-request rise marginal — honest partial result");
+  }
+  if(r.h6) add("H6 "+(r.h6.pass?"✓":"✗"), r.h6.pass?"ok":"bad",
+               "delay attractor: decoder "+fmt(r.h6.decoder_acc));
+}
+
+// ----------------------------------------------------------------- H5 honesty panel
+function drawH5(){
+  const h5=S.results.h5;
+  // bar chart: DA-request intact vs silenced, on a shared axis so the (marginal)
+  // delta is shown at true scale and never visually exaggerated.
+  const svg=document.getElementById("h5chart"); svg.innerHTML="";
+  const W=360,H=180,mL=42,mR=14,mT=14,mB=40;
+  const di=h5.da_request_intact||0, ds=h5.da_request_hab_silenced||0;
+  const top=Math.max(0.2, di, ds)*1.25;
+  const Y=v=>(H-mB)-(H-mB-mT)*(v/top);
+  svg.appendChild(el("line",{x1:mL,y1:H-mB,x2:W-mR,y2:H-mB,stroke:"var(--line)"}));
+  svg.appendChild(el("line",{x1:mL,y1:mT,x2:mL,y2:H-mB,stroke:"var(--line)"}));
+  [0,top/2,top].forEach(v=>{const y=Y(v);
+    const tx=el("text",{x:mL-6,y:y+3,"text-anchor":"end",fill:"var(--mut)","font-size":9});
+    tx.textContent=v.toFixed(2); svg.appendChild(tx);
+    svg.appendChild(el("line",{x1:mL,y1:y,x2:W-mR,y2:y,stroke:"var(--line)","stroke-dasharray":"2 4",opacity:0.4}));});
+  const bars=[["intact",di,"var(--accent)"],["hab silenced",ds,"var(--delay)"]];
+  const slot=(W-mR-mL)/bars.length, bw=slot*0.5;
+  bars.forEach((b,i)=>{
+    const x=mL+slot*i+(slot-bw)/2;
+    svg.appendChild(el("rect",{x,y:Y(b[1]),width:bw,height:(H-mB)-Y(b[1]),fill:b[2],opacity:0.9,rx:2}));
+    const tx=el("text",{x:x+bw/2,y:H-mB+14,"text-anchor":"middle",class:"barlabel"}); tx.textContent=b[0]; svg.appendChild(tx);
+    const vl=el("text",{x:x+bw/2,y:Y(b[1])-4,"text-anchor":"middle","font-size":9,fill:"var(--ink)"}); vl.textContent=b[1].toFixed(3); svg.appendChild(vl);
+  });
+  const yl=el("text",{x:mL,y:mT-2,"text-anchor":"start","font-size":9,fill:"var(--mut)"}); yl.textContent="mean DA-request"; svg.appendChild(yl);
+
+  // verdict text — explicit, honest, never overstating (per CLAUDE.md §5)
+  const delta=h5.da_request_delta;
+  const accRec=h5.acc_hab_silenced;
+  const v=document.getElementById("h5verdict");
+  let head;
+  if(h5.pass===true){
+    head="<span class='pill ok'>clean pass</span>";
+  } else if(accRec!=null && accRec>=0.65 && delta!=null && delta<=0.02){
+    head="<span class='pill warn'>partial / honest</span>";
+  } else {
+    head="<span class='pill bad'>not met</span>";
+  }
+  v.innerHTML = head +
+    " &nbsp; Accuracy after silencing the habitual system: <b>"+fmt(accRec)+"</b>"+
+    (accRec!=null&&accRec>=0.95?" (recovers to ceiling)":"")+
+    ". &nbsp; DA-request change Δ = <b>"+(delta!=null?delta.toFixed(4):"—")+"</b>"+
+    (delta!=null && Math.abs(delta)<0.05 ? " <b>(marginal)</b>" : "")+".";
+
+  document.getElementById("h5note").textContent =
+    "Prediction: silencing the habitual system at maintenance should make the dormant goal-directed "+
+    "trace reactivate, i.e. the DA-request signal should rise. The honest read of this run: accuracy "+
+    "recovers, but the DA-request rise is marginal — this is reported as a partial result, not a clean "+
+    "confirmation of the dormant-trace account. "+
+    (h5.note? "Pipeline note: "+h5.note : "");
+
+  const gc=h5.gate_clamp_control;
+  if(gc){
+    document.getElementById("h5clamp").innerHTML =
+      "<b>Gate-clamp control</b> (does recovery reflect a preserved goal-directed policy, or just the gate?): "+
+      "GD clamped open acc = <b>"+fmt(gc.acc_gd_clamped)+"</b>, combined = "+fmt(gc.acc_combined)+
+      ", habit-solo = "+fmt(gc.acc_hab_solo)+", mean w_GD = "+fmt(gc.w_gd_mean)+". "+
+      (gc.policy_preserved
+        ? "GD policy preserved — recovery is consistent with reactivating an intact solution, not a control-loop artifact."
+        : "GD policy NOT preserved — the data cannot yet distinguish genuine reactivation from a gate/control-loop artifact. "+
+          "This is exactly why it is named the first item in Future Research, not asserted as established.");
+  } else {
+    document.getElementById("h5clamp").textContent =
+      "Gate-clamp control not present in this run — the data cannot distinguish genuine reactivation from a control-loop artifact.";
+  }
+}
+
+// ----------------------------------------------------------------- supporting evidence
+function renderSupport(){
+  const r=S.results;
+  document.getElementById("supportcard").style.display="";
+  const grid=document.getElementById("supportgrid"); grid.innerHTML="";
+  // H1
+  if(r.h1){
+    const ci=r.h1.ci95||[];
+    grid.appendChild(card("H1 — basic competence",
+      kvHtml([["accuracy",fmt(r.h1.accuracy)],["k / n",r.h1.k+" / "+r.h1.n],
+              ["p-value",r.h1.p_value!=null?r.h1.p_value.toExponential(2):"—"],
+              ["95% CI",ci.length?("["+fmt(ci[0])+", "+fmt(ci[1])+"]"):"—"],
+              ["verdict",pillHtml(r.h1.pass)]])));
+  }
+  // H3 devaluation
+  if(r.h3){
+    const L=r.h3.learning||{}, M=r.h3.maintenance||{};
+    grid.appendChild(card("H3 — devaluation dissociation",
+      "<svg viewBox='0 0 320 150' style='margin-bottom:6px'>"+devalSvg(L,M)+"</svg>"+
+      kvHtml([["learning drop",fmt(L.drop)+" (value-sensitive)"],
+              ["maintenance drop",fmt(M.drop)+" (value-free habit)"],
+              ["dissociation",pillHtml(r.h3.dissociation_pass)]])));
+  }
+  // H4 lesions
+  if(r.h4){
+    grid.appendChild(card("H4 — lesion double dissociation",
+      "<svg viewBox='0 0 320 160'>"+lesionSvg(r.h4)+"</svg>"+
+      "<p class='note'>learning: needs goal-directed system; maintenance: survives GD lesion, needs habit.</p>"));
+  }
+  // H6 attractor
+  if(r.h6){
+    let body=kvHtml([["decoder acc",fmt(r.h6.decoder_acc)+(r.h6.decoder_sd!=null?" ± "+fmt(r.h6.decoder_sd):"")],
+                     ["participation ratio",fmt(r.h6.participation_ratio)],
+                     ["verdict",pillHtml(r.h6.pass)]]);
+    if(r.h6.pca_coords && r.h6.pca_coords.length){
+      body = "<svg viewBox='0 0 320 200'>"+pcaSvg(r.h6)+"</svg>"+body;
+    } else if(r.h6.note){
+      body = "<p class='note'>"+r.h6.note+"</p>"+body;
+    }
+    grid.appendChild(card("H6 — delay-period attractor (sample identity held through delay)", body));
+  }
+}
+
+function card(title,inner){
+  const d=document.createElement("div"); d.className="card"; d.style.padding="14px";
+  d.innerHTML="<h2 style='margin-bottom:10px'>"+title+"</h2>"+inner; return d;
+}
+function kvHtml(rows){ return "<dl class='kv'>"+rows.map(r=>"<dt>"+r[0]+"</dt><dd>"+r[1]+"</dd>").join("")+"</dl>"; }
+function pillHtml(pass){ return "<span class='pill "+(pass?"ok":"bad")+"'>"+(pass?"PASS":"fail")+"</span>"; }
+
+function devalSvg(L,M){
+  const W=320,H=150,mB=24,mT=10,base=H-mB;
+  const groups=[["learning",L],["maintenance",M]];
+  const Y=v=>base-(base-mT)*(v||0);
+  let s="<line x1='34' y1='"+base+"' x2='"+W+"' y2='"+base+"' stroke='var(--line)'/>";
+  s+="<line x1='34' y1='"+Y(0.5)+"' x2='"+W+"' y2='"+Y(0.5)+"' stroke='var(--mut)' stroke-dasharray='4 4' opacity='0.5'/>";
+  const slot=(W-34)/groups.length, bw=slot*0.28;
+  groups.forEach((g,i)=>{
+    const x0=34+slot*i+slot*0.1;
+    const before=g[1].before||0, after=g[1].after||0;
+    s+="<rect x='"+x0+"' y='"+Y(before)+"' width='"+bw+"' height='"+(base-Y(before))+"' fill='var(--accent)' rx='2'/>";
+    s+="<rect x='"+(x0+bw+4)+"' y='"+Y(after)+"' width='"+bw+"' height='"+(base-Y(after))+"' fill='var(--warn)' rx='2'/>";
+    s+="<text x='"+(x0+bw)+"' y='"+(base+14)+"' text-anchor='middle' fill='var(--mut)' font-size='9'>"+g[0]+"</text>";
+  });
+  s+="<text x='2' y='"+(mT+6)+"' fill='var(--mut)' font-size='8'>acc</text>";
+  return s;
+}
+function lesionSvg(h4){
+  const W=320,H=160,mB=34,mT=10,base=H-mB;
+  const conds=["intact","gd","hab","both"], labels=["intact","-GD","-hab","-both"];
+  const groups=[["learning","var(--accent)"],["maintenance","var(--gd)"]];
+  const Y=v=>base-(base-mT)*(v||0);
+  let s="<line x1='30' y1='"+base+"' x2='"+W+"' y2='"+base+"' stroke='var(--line)'/>";
+  s+="<line x1='30' y1='"+Y(0.5)+"' x2='"+W+"' y2='"+Y(0.5)+"' stroke='var(--mut)' stroke-dasharray='4 4' opacity='0.5'/>";
+  const slot=(W-30)/conds.length, bw=slot*0.32;
+  conds.forEach((c,i)=>{
+    const x0=30+slot*i+slot*0.08;
+    groups.forEach((g,j)=>{
+      const v=(h4[g[0]]||{})[c];
+      s+="<rect x='"+(x0+j*(bw+3))+"' y='"+Y(v)+"' width='"+bw+"' height='"+(base-Y(v))+"' fill='"+g[1]+"' rx='2'/>";
+    });
+    s+="<text x='"+(x0+bw)+"' y='"+(base+13)+"' text-anchor='middle' fill='var(--mut)' font-size='9'>"+labels[i]+"</text>";
+  });
+  s+="<text x='32' y='"+(base+27)+"' fill='var(--accent)' font-size='8'>■ learning</text>";
+  s+="<text x='120' y='"+(base+27)+"' fill='var(--gd)' font-size='8'>■ maintenance</text>";
+  return s;
+}
+function pcaSvg(h6){
+  const W=320,H=200,pad=24;
+  const co=h6.pca_coords, y=h6.labels||[];
+  let xmn=1e9,xmx=-1e9,ymn=1e9,ymx=-1e9;
+  co.forEach(p=>{xmn=Math.min(xmn,p[0]);xmx=Math.max(xmx,p[0]);ymn=Math.min(ymn,p[1]);ymx=Math.max(ymx,p[1]);});
+  const sx=v=>pad+(W-2*pad)*((v-xmn)/((xmx-xmn)||1));
+  const sy=v=>(H-pad)-(H-2*pad)*((v-ymn)/((ymx-ymn)||1));
+  let s="";
+  co.forEach((p,i)=>{
+    const col=y[i]===0?"var(--accent)":"var(--gd)";
+    s+="<circle cx='"+sx(p[0]).toFixed(1)+"' cy='"+sy(p[1]).toFixed(1)+"' r='2.6' fill='"+col+"' opacity='0.6'/>";
+  });
+  s+="<text x='"+pad+"' y='12' fill='var(--accent)' font-size='8'>● blocked=L</text>";
+  s+="<text x='110' y='12' fill='var(--gd)' font-size='8'>● blocked=R</text>";
+  s+="<text x='"+(W-2)+"' y='"+(H-2)+"' text-anchor='end' fill='var(--mut)' font-size='8'>PC1</text>";
+  return s;
+}
 
 function setMode(mode,initial){
   S.mode=mode; S.trial=0; S.step=0; stop();
   document.getElementById("tabTrain").classList.toggle("active",mode==="train");
   document.getElementById("tabEval").classList.toggle("active",mode==="eval");
   const arr=mode==="train"?S.traj.train:S.traj.eval;
-  const sel=document.getElementById("trialsel"); sel.innerHTML="";
-  (arr||[]).forEach((t,i)=>{
-    const o=document.createElement("option"); o.value=i;
-    const tag = mode==="train"&&t.episode!=null?"ep "+t.episode:"#"+i;
-    o.textContent=tag+" \u00b7 blk "+t.blocked+" \u00b7 "+(t.correct?"\u2713":"\u2717");
-    sel.appendChild(o);
-  });
+  const sel=document.getElementById("trialsel");
+  sel.min=0; sel.max=Math.max(0,(arr||[]).length-1); sel.value=0;
   const note=document.getElementById("rulenote");
   note.innerHTML = "<b>Rule:</b> non-match. The agent samples the open arm, holds it through the delay, "+
-    "then must reach the <b>opposite</b> (blocked) arm \u2014 circled in green. "+
-    (mode==="eval"?"Eval trials have no phase log; path is single-colour and phase reads n/a.":
-                   "Path colour shows the task phase at each step.");
+    "then must reach the <b>opposite</b> (blocked) arm — circled in green. "+
+    "Path/agent colour tracks w_GD: <span style='color:var(--hab)'>green = habitual</span> drives, "+
+    "<span style='color:var(--gd)'>orange = goal-directed</span> drives. "+
+    (mode==="eval"?"Eval trials have no phase log; phase reads n/a.":
+                   "Phase shading appears in the w_GD strip below.");
   drawMazeBase(); selectTrial(0);
 }
 function selectTrial(i){
+  const arr=S.mode==="train"?S.traj.train:S.traj.eval;
+  const n=(arr||[]).length;
+  i=Math.max(0,Math.min(i,n-1));
   S.trial=i; S.step=0; stop();
   document.getElementById("trialsel").value=i;
+  const t=arr&&arr[i];
+  const tag = t ? (S.mode==="train"&&t.episode!=null?"ep "+t.episode:"#"+i) : "—";
+  document.getElementById("trialpill").textContent =
+    "trial "+(n?i+1:0)+"/"+n+(t?" · "+tag+" · blk "+t.blocked+" · "+(t.correct?"✓":"✗"):"");
   drawMazeBase(); renderTrialKV(); renderStep();
 }
-document.getElementById("trialsel").addEventListener("change",e=>selectTrial(+e.target.value));
+document.getElementById("trialsel").addEventListener("input",e=>selectTrial(+e.target.value));
+document.getElementById("trialPrev").addEventListener("click",()=>selectTrial(S.trial-1));
+document.getElementById("trialNext").addEventListener("click",()=>selectTrial(S.trial+1));
 document.getElementById("tabTrain").addEventListener("click",()=>setMode("train",false));
 document.getElementById("tabEval").addEventListener("click",()=>setMode("eval",false));
 document.getElementById("scrub").addEventListener("input",e=>{S.step=+e.target.value;stop();renderStep();});
@@ -434,6 +756,7 @@ function addFigs(files){
 }
 
 function mean(a){return a.length? a.reduce((s,x)=>s+x,0)/a.length : 0;}
+function fmt(v){ return (v==null||isNaN(v))? "—" : (+v).toFixed(2); }
 </script>
 </body>
 </html>

@@ -1,116 +1,143 @@
-# dopaCTRNN — Stage 1
+# Visualisations
 
-In-silico reproduction of the reversible cortico-striatal handoff (Villet et al., 2025):
-control migrates from a goal-directed (mPFC/DMS) controller to a habitual (DLS) one over
-training, and reverses instantly when the habitual system is silenced — the cortical
-solution stays **dormant but reactivable**, not erased.
+Interactive trajectory/maze visualiser for Stage-1 experiment results. It consumes the
+output of `Code/main/`'s pipeline and turns it into self-contained HTML files you can
+open directly in a browser, no server required. There are two tools, for two different
+shapes of input:
 
-A dual-system CTRNN solves a delayed non-match-to-place (DNMTP) T-maze. Dopamine sets a
-multiplicative **expression gain** on the goal-directed weights (`W_eff = f(DA)·W`); a
-scalar **DA-request**, penalised to be minimised, drives an **emergent** handoff. The
-habitual system learns **value-free** (action-prediction-error + intrinsic efficiency;
-the task reward never enters its loss), which is what makes it structurally
-devaluation-insensitive.
+- **`build_viz.py`** — one seed at a time. Consumes a flat `results/seed<N>/` folder
+  (what `run_experiment.py` writes directly, or one arm/run's worth of seeds from a
+  batch). Use this when you want the full trial player / per-seed detail for a single
+  run, or when there's no batch to compare against.
+- **`build_batch_viz.py`** — a whole ladder experiment at once. Consumes the richer
+  `results/<exp>/<arm>/<ts>_<commit>/seed<N>/` layout that `batch_runner.py` writes
+  (Step 8 of the roadmap) and produces one page that aggregates each arm's seeds and
+  compares arms against each other. Use this whenever you've run a contrast (E2/E3/E4/
+  E5/E8) and want to see whether the arms actually differ — that comparison is exactly
+  what a per-seed page can't show you, since it only ever has one seed loaded.
+
+The two are complementary, not a replacement of one by the other: `build_batch_viz.py`
+calls into `build_viz.py`'s per-seed builder itself to produce drill-down pages linked
+from the batch view, so the trial player is never duplicated, only reused.
+
+This supersedes the earlier `make_viz.py`-based workflow (see `logs/SESSION_LOG.md`,
+2026-06-20/21): that tool has been replaced by `build_viz.py` + `visualiser.html`.
 
 ## Files
-- `config.py` — all (pinned) hyperparameters + the OPEN #1 switch.
-- `environment.py` — DNMTP T-maze; allocentric (22-d) vs egocentric (14-d) streams.
-- `model.py` — `DualSystemModel`: GD CTRNN (D1/phasic + D2/tonic, DA gain, DA-request, critic) + habitual CTRNN (Go/NoGo) + DA-gated mixing.
-- `train.py` — A2C for GD (habitual detached → no reward gradient) + value-free habitual loss; expression-gated plasticity; DA-penalty warmup/ramp.
-- `analysis.py` — H1–H7, attractor PCA + decoder, participation ratio, optional fixed-point finder.
-- `figures.py` — Figures 1–6.
-- `run_experiment.py` — one seed end-to-end → `results.json` + figures + checkpoints.
-- `aggregate.py` — combine seeds → across-seed summary + cross-seed figures.
-- `g5k/` — Grid5000 launchers (OAR).
+- `build_viz.py` — per-seed CLI tool (see Usage below).
+- `visualiser.html` — the per-seed viewer template; also works standalone via drag-and-drop.
+- `build_batch_viz.py` — batch/arm-comparison CLI tool (see Usage below).
+- `batch_visualiser.html` — the batch viewer template.
+- `aggregate_arm.py` — cross-seed aggregation math for one arm (mean/sd per episode,
+  per-hypothesis pass rates); imported by `build_batch_viz.py`, not run directly. Mirrors
+  `Code/main/aggregate.py`'s `_ms()` helper but is arm-aware, since `aggregate.py` only
+  knows about the old flat `results/seed<N>/` layout.
+- `sample_results.json`, `sample_trajectories.json` — example fixture data (see below).
 
-## Install (local)
+## Usage — per seed
 ```bash
-pip install -r requirements.txt        # torch (CPU is fine), numpy, scipy, scikit-learn, matplotlib
-```
+python build_viz.py <results_dir> [--out <out_dir>]
 
-## Run (local)
+# example, against Code/main's own results directory
+python build_viz.py ../main/results
+```
+`results_dir` must contain `seed<N>/` subfolders. For each one that has a
+`trajectories.json`, the script embeds that seed's trajectories, `results.json` (if
+present — its `logs` sub-object is split out separately for the handoff chart), and any
+`fig*.png` files (base64-encoded) into a copy of `visualiser.html`, replacing its
+`<script id="embedded-data">` placeholder. Output goes to `<results_dir>/viz/` by
+default (override with `--out`), one `viz_seed<N>.html` per seed. Seeds without
+`trajectories.json` are skipped with a warning; if `results_dir` has no `seed*/`
+subfolders at all, the script exits with an error.
+
+## Usage — batch / arm comparison
 ```bash
-# one seed (trained) — full pipeline, ~1.5–2 min on a laptop CPU
-python run_experiment.py --seed 0 --outdir results
+python build_batch_viz.py <exp_dir> [--out <out_dir>] [--run <ts>_<commit>]
 
-# the untrained negative control for the same seed (H7)
-python run_experiment.py --seed 0 --outdir results --untrained
-
-# a few seeds, then aggregate
-for s in 0 1 2 3 4; do
-  python run_experiment.py --seed $s --outdir results
-  python run_experiment.py --seed $s --outdir results --untrained
-done
-python aggregate.py --root results --out results/summary
+# example, against one ladder experiment's output
+python build_batch_viz.py ../main/results/e4
 ```
-Add `--fixed-points` to also run the Sussillo & Barak-style fixed-point analysis.
+`exp_dir` must be one experiment's directory as written by `batch_runner.py` — i.e. it
+contains `<arm>/` subfolders, each containing one or more `<ts>_<commit>/seed<N>/` run
+directories, plus (if the batch ran to completion) a `batch_summary_<ts>_<commit>.json`
+at the top level. For each arm, the script:
+1. Picks the most recent `<ts>_<commit>` run (lexical sort on the timestamp prefix —
+   pass `--run <ts>_<commit>` to pin a specific one instead, e.g. to compare an older
+   run after a re-run exists).
+2. Aggregates that run's seeds with `aggregate_arm.py` (cross-seed mean/sd of the H2
+   per-episode logs, plus per-hypothesis pass counts for H1/H2/H3/H5/H6).
+3. Builds a per-seed drill-down page for each seed (via `build_viz.py`'s builder,
+   reused as a library call — not reimplemented) into `<out_dir>/seeds/`.
 
-## Trajectory viewer (interactive, Firefox)
-Each `run_experiment.py` run also writes `seed<N>/trajectories.json` (compact: a
-subsampled training-progression set + eval trials, each a cell path with per-step w_GD).
-Build a single self-contained HTML (data inlined — no server needed):
-```bash
-python make_viz.py --root results --out results/maze_viz.html
-# then open results/maze_viz.html in Firefox
-```
-Controls pick the experiment (seed), the mode (training progression / eval), and the
-trial. The selected trial shows the agent's path coloured per step by **w_GD** (teal =
-habitual in control, crimson = goal-directed) with a w_GD-vs-step timeline; the overlay
-shows every trajectory of that mode as thin lines shaded **white (earliest) → black
-(latest)** so you can watch the route sharpen over training. Logging is subsampled
-(`config.traj_log_every`) so it adds negligible storage/compute.
+It then embeds every arm's aggregate, the seed drill-down links, and the latest
+`batch_summary_*.json` (if present) into a copy of `batch_visualiser.html`, replacing
+its `<script id="embedded-batch-data">` placeholder. Output goes to `<exp_dir>/viz/` by
+default (override with `--out`), as `batch_<exp>.html` + a `seeds/` subfolder of
+per-seed pages it links to. If no arm has any usable seed data, or no `<ts>_<commit>`
+run directories exist at all, the script exits with an error.
 
-## Run (Grid5000)
-Grid5000 uses **OAR**, not SLURM. Run the first step on a **site frontend** (frontends
-have proxied internet; compute nodes do not). CPU only — no GPU reservation needed.
-```bash
-# 1) once, on a frontend: build the venv on your NFS home
-bash g5k/setup_env.sh
+### What the batch HTML lets you do
+One page per experiment, still fully self-contained (open it, no server). It shows, in
+order:
+- **Gate banner** — reads `all_arms_gate_clear` from `batch_summary_*.json`. If false: a
+  large, hard-to-miss red banner naming exactly which arm(s) failed the H1 gate, quoting
+  the roadmap's protocol (every arm must independently clear accuracy ≥ 0.80, p < 1e-3
+  before a contrast is interpretable) and saying explicitly not to tune to rescue a
+  failing arm. If true, just a small green pill in the header — deliberately quiet when
+  there's nothing to flag. If no `batch_summary_*.json` is found at all (e.g. you're
+  pointing it at a partially-run or hand-assembled directory), it says so instead of
+  guessing.
+- **Experiment overview table** — one row per arm: seed count, H1 gate pass count, mean
+  accuracy ± sd, and pass counts for H2/H3/H5, plus how many seeds preserved the
+  gate-clamp-control policy and which `<ts>_<commit>` run was used.
+- **H2 — handoff timing, arm vs. arm** — combined / habitual-solo / goal-directed-solo
+  accuracy and `w_GD`, one mean line per arm (colour-coded) with a ±1 sd band across that
+  arm's seeds, overlaid on one chart so arms are directly comparable.
+- **H5 — reactivation & gate-clamp control, arm vs. arm** — the E2/E3 crux test: per-arm
+  bars (with individual seed points jittered on top) for the DA-request Δ
+  (silenced − intact) and the gate-clamp control's GD-clamped accuracy, so you can see at
+  a glance whether, e.g., the `expression` arm reactivates while `scheduled` doesn't.
+- **H3 — devaluation dissociation, arm vs. arm** — learning-phase vs. maintenance-phase
+  accuracy drop, per arm, with seed-level error bars.
+- **Per-arm cards** — one card per arm with the full numeric summary (mean ± sd for every
+  hypothesis) and a row of buttons, one per seed, linking to that seed's full drill-down
+  page (`seeds/viz_<arm>_<seed>.html`) — the same trial player / H2 chart / H5 panel /
+  static figures that `build_viz.py` produces standalone, reused rather than rebuilt.
 
-# 2) submit N seeds as an OAR array job (each array task = one seed + its control)
-NSEEDS=10 WALLTIME=02:00:00 bash g5k/submit_oar.sh
-oarstat -u $USER            # watch progress
+Any panel whose relevant data is entirely absent across all arms (e.g. no `h3` anywhere)
+is simply not shown, rather than rendered empty.
 
-# 3) when finished, aggregate
-source venv/bin/activate
-python aggregate.py --root results --out results/summary
-```
+## What the per-seed HTML lets you do
+Each generated page is fully self-contained (data is inlined, so it works with no
+server — just open it in a browser). It shows:
+- **Trial player** — a maze rendering with a slider/play-pause to step through a chosen
+  trial. Tabs switch between training trials and final-policy (eval) trials; a
+  prev/next/slider control picks which trial. The agent's path is colour-coded per step
+  by `w_GD`, the goal-directed expression gain: green = habitual driving, orange =
+  goal-directed driving (interpolated in between). A `w_GD` strip beneath the maze shows
+  the same signal as a timeline across the trial, with phase shading (pre-sample /
+  sample / delay / choice) for training trials.
+- **H2 handoff chart** — combined/habitual-solo/goal-directed-solo accuracy and `w_GD`
+  plotted across training episodes, with the competence-locked handoff window shaded;
+  clicking a point jumps the trial player to the nearest training episode. Only shown if
+  `results.json`'s `logs` are present.
+- **H5 reactivation panel** — a bar chart of mean DA-request intact vs. habitual-silenced,
+  plus an explicit honest verdict (clean pass / partial / not met) and, if present, the
+  gate-clamp control readout. Only shown if `results.json` has an `h5` entry.
+- **Supporting evidence** (collapsible) — H1 competence, H3 devaluation, H4 lesion
+  double-dissociation, H6 delay-attractor PCA, whichever of these are present in
+  `results.json`.
+- **Static figures** (collapsible) — the embedded `fig*.png` images, or a drop zone to
+  add them manually.
 
-## Outputs
-Per seed under `results/seed<N>/`: `results.json`, `ckpt_learning.pt`,
-`ckpt_maintenance.pt`, and `fig1`–`fig5`. Aggregate under `results/summary/`:
-`summary.{json,md,csv}`, cross-seed Fig 1, and Fig 6 (trained vs untrained).
+If no data was embedded by `build_viz.py` (the placeholder script tag is left as `{}`),
+`visualiser.html` falls back to its original drag-and-drop mode: drop `trajectories.json`
+(required, drives the maze player) and optionally `results.json` (adds the handoff chart
+and H1/H3/H4/H5/H6 panels) onto the page, or click to choose files.
 
-## Verified Stage-1 results (default config, single seed)
-| hypothesis | result |
-|---|---|
-| H1 learning (≥80%, binomial) | combined accuracy → 1.00 |
-| H2 emergent handoff | habitual competence (~ep1500) precedes the w_GD drop (~ep2500); PASS |
-| H3 devaluation dissociation | learning-phase drop ≈ 0.5, maintenance drop ≈ 0.0; PASS |
-| H5 reactivation (falsification) | silencing the habitual system restores accuracy to 1.00; PASS |
-| H6 working-memory attractor | delay-period arm decoder = 1.00; PASS |
-| H7 untrained control | ≈ chance |
-
-Note on H5: behavioural reactivation is strong, but the **DA-request rise is marginal**
-(the reactivation works because the goal-directed policy, preserved intact, dominates the
-choice once the habitual system is removed). Report this honestly.
-
-## Key design notes
-- **Devaluation** is operationalised as removing the goal-directed motivational drive
-  (`mot → 0`), reflecting the value-sensitivity of goal-directed control; the value-free
-  habitual system is unaffected — hence the dissociation.
-- **Expression-gated plasticity**: when the GD system is not expressed (`w_GD` low) it is
-  not updated, so its solution is preserved (dormant but reactivable), consistent with
-  `W_eff = f(DA)·W`. Without this the dormant policy is erased and H5 fails.
-- **Mixed time constants** (D1/phasic fast, D2/tonic slow) give both fast decision
-  dynamics and working memory that survives the delay.
-- **Hyperparameters are pinned by us**, not inherited — tune freely; the protocol treats
-  a learning failure as a tuning problem, not a scientific one.
-
-## OPEN QUESTION #1 — DA-request training signal
-`config.da_request_training` selects how the DA-request is trained:
-- `"a2c_coupled"` (default, implemented): the DA-request is shaped by the A2C advantage
-  (reward-coupled). Carries the circularity risk discussed in the mémoire.
-- `"local_pe"` (**intentionally not implemented**): train it from a purely local
-  prediction error instead. Specifying that error is the open design decision; the code
-  raises `NotImplementedError` rather than choosing it for you.
+## Sample data
+`sample_results.json` and `sample_trajectories.json` are standalone example/test
+fixtures — neither `build_viz.py` nor `visualiser.html` reference these filenames
+anywhere; there is no default/demo dataset that auto-loads. To inspect them, open
+`visualiser.html` directly in a browser and drag-and-drop the two files onto the drop
+zone.

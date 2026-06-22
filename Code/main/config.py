@@ -9,7 +9,11 @@ class Config:
     # ---- task (environment.py) ----
     len_edge: int      = 7            # inner grid edge (odd, >=5); width = len_edge+2
                                       # NOTE: len_edge=5 needs difficulty>=1 (else no stem)
-    difficulty: int    = 0            # 0=easy 1=medium 2=hard — sets stem length (height)
+    difficulty: int    = 2            # 0=easy 1=medium 2=hard — sets stem length (height)
+                                      # default raised 0->2: len_edge=7 gives stem=1 row at
+                                      # difficulty=0 (no real corridor) vs stem=3 at difficulty=2,
+                                      # while staying at h=6 (<=6) so the h>6 antechamber widening
+                                      # (supervisor's tunl_a2c_two_area.py:160) never triggers.
     sig_val: float     = 0.25         # phase-signal amplitude (was 1/(COLS-1) at 5-wide)
     delay_start: int   = 15           # supervisor START_DELAY=15; must already stress WM at curriculum start
     delay_max: int     = 40           # supervisor MAX_DELAY=40; our 15 was far too low to test WM
@@ -42,9 +46,14 @@ class Config:
     wgd_bias: float    = -2.0         # init so w_GD → low when DA → 0
     da_split: bool     = False        # False (default): expression-gain and arbitration use the
                                       # same da_request scalar (tied; bit-identical to pre-split).
-                                      # True: split into da_expression (→ W_eff) and da_arbitration
-                                      # (→ w_gd). Step 7 will wire them to separate sub-networks;
-                                      # here it is the structural scaffold only.
+                                      # True: arbitration is read from GDNet.arbitration() — an
+                                      # independently-parameterised readout (w_arb/b_arb) of the
+                                      # same hidden state — decoupling it from da_expression
+                                      # (still da_request, drives W_eff). Required for E2/E3 to
+                                      # be non-vacuous; set automatically by batch_runner.py.
+    sched_w_high: float = 0.9         # E2 (gate_mode="scheduled"): w_gd ramp value pre-handoff
+                                      # (GD-led), independent of da_request.
+    sched_w_low: float  = 0.1         # E2: w_gd ramp value post-handoff (habit-led).
 
     # ---- training (train.py) ----
     episodes: int   = 512000          # raised from 32k: longer curriculum needs more episodes

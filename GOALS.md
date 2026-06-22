@@ -9,7 +9,10 @@ _Keep this under one page. Update when direction changes; add a dated changelog 
 **The project's claim:** Dopamine is the unstated mechanistic substrate of the Villet et al. (2025) cortico-striatal handoff. `W_eff = f(DA)·W` (expression gain, not weight modification) explains instant reactivation; the DA-request neuron makes the handoff emergent rather than scheduled; the APE habitual rule makes devaluation-insensitivity structural.
 
 **Stage 1 is complete.** Verified results (default config, `Code/main/`):
-
+Citation correction: do not cite a fixed D1/D2 receptor-affinity direction
+(Grace 1991 / Dreyer et al. 2010) for the two-timescale engine. Kutter et al. (2026)
+report the opposite direction for this task regime. Use the widen (fast/decision) vs.
+deepen (slow/maintenance) framing from Naudé et al. (2024) instead — see CLAUDE.md §3.
 | Hypothesis | Result |
 |---|---|
 | H1 learning ≥80% | combined accuracy → 1.00 ✓ |
@@ -36,4 +39,13 @@ Stages 2–7 = planned/future work. Write Stage 1 as self-sufficient.
 
 
 ---
+
+| H5 reactivation (falsification) | accuracy → 1.00 ✓ ; DA-request rise marginal — NOT a clean confirmation. Data cannot yet distinguish genuine dormant-trace reactivation from a control-loop artifact (no gate-clamp control run). Write up as an honest partial result in Discussion; name the gate-clamp control as the first Future Research item. |
+
+(This replaces the parenthetical "(DA-request rise marginal — report honestly)" with an
+explicit statement of what the ambiguity is and what would resolve it, so whoever
+writes Discussion doesn't have to reconstruct that reasoning under deadline pressure.)
+
+
+
 

@@ -48,6 +48,12 @@ class GDNet(nn.Module):
         self.b_out = nn.Parameter(torch.zeros(a))
         self.w_da  = nn.Parameter(torch.randn(n) * 0.1)
         self.b_da  = nn.Parameter(torch.zeros(1))
+        # Step 5 scalar split: an arbitration readout independent of da_request
+        # (which drives the expression gain below). Only read when cfg.da_split
+        # is True (DualSystemModel.step); unused parameters when False, so the
+        # default forward pass is unaffected.
+        self.w_arb = nn.Parameter(torch.randn(n) * 0.1)
+        self.b_arb = nn.Parameter(torch.zeros(1))
         self.w_v   = nn.Parameter(torch.randn(n) * 0.1)
         self.b_v   = nn.Parameter(torch.zeros(1))
         self.gain_base = nn.Parameter(torch.tensor(cfg.gain_base))
@@ -80,6 +86,14 @@ class GDNet(nn.Module):
         pi    = r_out @ self.W_out.T + self.b_out                  # [B, n_actions]
         value = (h * self.w_v).sum(-1) + self.b_v.squeeze()        # [B]
         return pi, da_request, value, h, da_tonic
+
+    def arbitration(self, h):
+        """Independent arbitration readout (Step 5 split): same functional
+        form as da_request but its own parameters, computed from the GD
+        hidden state. Lets cfg.da_split=True decouple "which system drives
+        behaviour" (-> w_gd) from "how strongly the GD policy is expressed"
+        (-> da_request -> W_eff gain), as required for E2/E3."""
+        return torch.sigmoid((h * self.w_arb).sum(-1) + self.b_arb.squeeze())
 
 
 class HabNet(nn.Module):
@@ -143,9 +157,14 @@ class DualSystemModel(nn.Module):
         self.hab  = HabNet(cfg)
         self.alpha = nn.Parameter(torch.tensor(cfg.wgd_alpha))
         self.bias  = nn.Parameter(torch.tensor(cfg.wgd_bias))
-        # E2 (gate_mode="scheduled"): train.py sets this to a float ramp value
-        # each iteration; when None the expression gate is used unconditionally.
-        self.scheduled_w = None
+        # E2 (gate_mode="scheduled"): train.py fills this each iteration with a
+        # fixed ramp value (never read from da_request). A buffer, not a plain
+        # attribute, so it rides along in state_dict()/load_state_dict() — each
+        # checkpoint (ckpt_learn/ckpt_maint) automatically freezes whatever
+        # schedule value was active when that checkpoint was captured, with no
+        # special-casing needed at any of analysis.py's many reload sites.
+        # NaN = unset (gate_mode != "scheduled", or before the first ramp write).
+        self.register_buffer("scheduled_w", torch.tensor(float("nan")))
         self.reset_state()
 
     def reset_state(self, batch_size=1):
@@ -168,20 +187,20 @@ class DualSystemModel(nn.Module):
             obs, self.h_gd, self.da_tonic, lesion=les_gd)
         pi_h, self.h_hab = self.hab.step(obs2, self.h_hab, lesion=les_hab)
 
-        # Scalar split: expression-gain path (→ W_eff, inside gd.step) vs the
-        # arbitration path (→ w_gd, below). In the tied default both equal
-        # da_request, so the forward pass is bit-identical to pre-split. When
-        # cfg.da_split is True the two are computed independently — Step 7 wires
-        # them to separate sub-networks; here it is the structural scaffold only.
+        # Scalar split: expression-gain path (→ W_eff, already applied inside
+        # gd.step via da_request) vs the arbitration path (→ w_gd, below).
+        # da_split=False (default, tied): both read da_request — bit-identical
+        # to pre-split. da_split=True: arbitration is read from gd.arbitration(),
+        # an independently-parameterised readout (model.py GDNet.w_arb/b_arb) of
+        # the same hidden state — a genuinely separate signal, not a relabelling,
+        # so E2 ("is expression-gating necessary") and E3 (Naudé decomposition)
+        # can actually distinguish the two mechanisms.
         if self.cfg.da_split:
-            da_expression  = da_request   # stub: Step 7 will wire separate sub-networks
-            da_arbitration = da_request
+            da_expression  = da_request
+            da_arbitration = self.gd.arbitration(self.h_gd)
         else:
             da_expression  = da_request
             da_arbitration = da_request
-        # NOTE: da_expression feeds W_eff. gd.step already used da_request for the
-        # gain path; in the tied default this is identical, so no rewire needed.
-        # Step 7 will thread da_expression into gd.step explicitly.
 
         # E3 (da_components): control which DA path is active.
         # "weights_only" or any mode that suppresses the gate: w_gd → 0 (fully habitual).
@@ -197,7 +216,7 @@ class DualSystemModel(nn.Module):
         else:
             # E2 (gate_mode): expression gate (default) vs scheduled ramp.
             gate_mode = getattr(self.cfg, "gate_mode", "expression")
-            if gate_mode == "scheduled" and self.scheduled_w is not None:
+            if gate_mode == "scheduled" and not torch.isnan(self.scheduled_w):
                 w_gd = torch.full_like(da_arbitration, float(self.scheduled_w))
             else:
                 w_gd = torch.sigmoid(self.alpha * da_arbitration + self.bias)  # [B]

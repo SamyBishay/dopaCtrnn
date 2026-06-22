@@ -14,7 +14,7 @@ def setup():
     net = HabNet(cfg)
     net.eval()
     B = 4
-    x = torch.randn(B, cfg.obs_dim)
+    x = torch.randn(B, cfg.obs_dim_hab)
     h = torch.zeros(B, cfg.n_hab)
     return cfg, net, B, x, h
 
@@ -173,7 +173,7 @@ def test_ctrnn_dt_over_tau_blending(setup):
 def test_different_batch_sizes(setup):
     cfg, net, B, x, h = setup
     for b in [1, 2, 8]:
-        x_b = torch.randn(b, cfg.obs_dim)
+        x_b = torch.randn(b, cfg.obs_dim_hab)
         h_b = torch.zeros(b, cfg.n_hab)
         with torch.no_grad():
             pi, h_new = net.step(x_b, h_b)

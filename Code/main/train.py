@@ -9,6 +9,7 @@ Two optimizers (goal-directed, habitual) are updated once per iteration
 over the summed losses from all B completed episodes.
 """
 import copy
+import math
 import os
 import numpy as np
 import torch
@@ -66,6 +67,18 @@ def gae_batch(rewards, values, gamma, lam, valid):
         next_val = values[t]
     ret = adv + values
     return adv, ret
+
+
+def scheduled_w_value(ep, cfg):
+    """E2 (gate_mode='scheduled'): a fixed w_gd ramp, function of episode count
+    only — never reads da_request. Centred on the same warmup/ramp window as
+    the DA-cost penalty, so the scheduled arm hands off on a comparable
+    timetable to the expression arm without being driven by the DA mechanism
+    (the contrast E2 needs: a schedule in disguise vs. a genuine DA gate)."""
+    center = cfg.da_warmup + cfg.da_ramp / 2
+    width  = max(cfg.da_ramp, 1) / 4
+    frac = 1.0 / (1.0 + math.exp((ep - center) / width))
+    return cfg.sched_w_low + (cfg.sched_w_high - cfg.sched_w_low) * frac
 
 
 class RunningNorm:
@@ -300,6 +313,9 @@ def train(cfg, verbose=True):
                 ape_scale = 1.0
         else:
             ape_scale = 1.0
+
+        if cfg.gate_mode == "scheduled":
+            model.scheduled_w.fill_(scheduled_w_value(ep, cfg))
 
         _train_batch(model, venv, cfg, opt_gd, opt_hab, da_lambda,
                      ret_norm=ret_norm, ape_scale=ape_scale)

@@ -60,6 +60,21 @@ def main():
                     help="fade APE weight once habitual surpasses combined")
     ap.add_argument("--ckpt-every", type=int, default=None,
                     help="write a resumable checkpoint every N episodes (0=off)")
+    ap.add_argument("--da-split", action="store_true",
+                    help="split expression-gain and arbitration into independent "
+                         "signals (required for E2/E3 to be non-vacuous)")
+    ap.add_argument("--gate-mode", type=str, default=None,
+                    choices=["expression", "scheduled"],
+                    help="E2: DA-driven gate (default) vs a fixed schedule")
+    ap.add_argument("--da-components", type=str, default=None,
+                    choices=["both", "gain_only", "weights_only"],
+                    help="E3: which DA component is active (Naudé decomposition)")
+    ap.add_argument("--habit-rule", type=str, default=None,
+                    choices=["value_free", "value_coupled"],
+                    help="E4: value-free APE habit (default) vs reward-coupled")
+    ap.add_argument("--habit-obs", type=str, default=None,
+                    choices=["position_free", "allocentric"],
+                    help="E5: position-free habit observation (default) vs allocentric")
     args = ap.parse_args()
 
     cfg = Config(seed=args.seed, device=args.device)
@@ -81,6 +96,17 @@ def main():
         cfg.ret_norm = False
     if args.ape_decay:
         cfg.ape_decay = True
+    if args.da_split:
+        cfg.da_split = True
+    if args.gate_mode is not None:
+        cfg.gate_mode = args.gate_mode
+    if args.da_components is not None:
+        cfg.da_components = args.da_components
+    if args.habit_rule is not None:
+        cfg.habit_rule = args.habit_rule
+    if args.habit_obs is not None:
+        cfg.habit_obs = args.habit_obs
+        cfg.__post_init__()  # re-sync obs_dim_hab now that habit_obs is set
 
     tag = f"seed{args.seed}" + ("_untrained" if args.untrained else "")
     outdir = os.path.join(args.outdir, tag)

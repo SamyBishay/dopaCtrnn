@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dual-system T-maze — batch / arm comparison</title>
+<style>
+  :root{
+    --bg:#0e1117; --panel:#161b22; --panel2:#1c2230; --ink:#e6edf3; --mut:#8b949e;
+    --line:#30363d; --accent:#58a6ff; --gd:#d2691e; --hab:#3fb950; --warn:#f85149;
+    --ok:#3fb950; --bad:#f85149; --warnamber:#d29922;
+    --r:10px; --mono:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.5}
+  header{padding:18px 22px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  header h1{font-size:17px;margin:0;font-weight:650}
+  header .meta{color:var(--mut);font-family:var(--mono);font-size:12px}
+  main{max-width:1280px;margin:0 auto;padding:22px;display:flex;flex-direction:column;gap:22px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px}
+  .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin:0 0 14px;font-weight:650}
+  .card h2 .sub{text-transform:none;letter-spacing:0;font-weight:400;color:var(--mut);font-size:12px}
+  .hint{font-size:12px;color:var(--mut);margin-top:8px}
+  .chartwrap{position:relative}
+  svg{display:block;width:100%;height:auto;font-family:var(--mono);font-size:11px}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;margin-top:8px;font-family:var(--mono);font-size:12px}
+  .legend span{display:inline-flex;align-items:center;gap:6px;color:var(--mut)}
+  .swatch{width:14px;height:3px;border-radius:2px;display:inline-block}
+  .dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+  button,a.btn{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:7px 12px;cursor:pointer;font-size:13px;font-family:var(--sans);text-decoration:none;display:inline-block}
+  button:hover,a.btn:hover{border-color:var(--accent)}
+  .pill{font-family:var(--mono);font-size:12px;padding:3px 9px;border-radius:20px;border:1px solid var(--line)}
+  .pill.ok{color:var(--ok);border-color:var(--ok)}
+  .pill.bad{color:var(--bad);border-color:var(--bad)}
+  .pill.warn{color:var(--warnamber);border-color:var(--warnamber)}
+  .verdicts{display:flex;gap:8px;flex-wrap:wrap}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:5px 14px;font-family:var(--mono);font-size:12.5px}
+  .kv dt{color:var(--mut)}
+  .kv dd{margin:0;text-align:right}
+  .empty{color:var(--mut);text-align:center;padding:40px;font-style:italic}
+  code{font-family:var(--mono);background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
+  .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+  .gridArms{display:grid;gap:14px}
+  .note{font-size:12px;color:var(--mut);line-height:1.5}
+  .barlabel{font-family:var(--mono);font-size:11px;fill:var(--mut)}
+  .gatebanner{background:#3a0d0d;border:2px solid var(--bad);border-radius:var(--r);padding:18px 22px;
+    color:#ffd7d3;font-weight:650;font-size:15px;display:flex;align-items:center;gap:14px}
+  .gatebanner .big{font-size:20px}
+  .armtable{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12.5px}
+  .armtable th,.armtable td{padding:6px 10px;border-bottom:1px solid var(--line);text-align:left}
+  .armtable th{color:var(--mut);font-weight:600;text-transform:uppercase;font-size:10.5px;letter-spacing:.04em}
+  .seedlinks{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .seedlinks a{font-size:11px;padding:3px 9px}
+  .armcard{border-left:3px solid var(--accent)}
+  .armcard h3{margin:0 0 8px;font-size:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .armcard h3 .armname{font-family:var(--mono);color:var(--accent)}
+  .config-diff{font-family:var(--mono);font-size:11.5px;color:var(--mut);background:var(--panel2);
+    border-radius:6px;padding:8px 10px;margin-top:8px;overflow-x:auto;white-space:pre}
+</style>
+</head>
+<body>
+<header>
+  <h1>Dual-system T-maze — batch comparison</h1>
+  <span class="meta" id="hdrmeta">no batch data loaded</span>
+  <span class="verdicts" id="gateverdict"></span>
+</header>
+
+<!-- EMBEDDED_BATCH_DATA: build_batch_viz.py replaces the object below with
+     {exp, arms, batch_summary, run_used} so this file is fully self-contained,
+     same design as visualiser.html / build_viz.py. -->
+<script id="embedded-batch-data" type="application/json">{}</script>
+
+<main>
+  <div id="gatebox"></div>
+
+  <div class="card" id="overviewcard" style="display:none">
+    <h2>Experiment overview <span class="sub" id="overviewsub"></span></h2>
+    <table class="armtable" id="armtable"></table>
+  </div>
+
+  <div class="card" id="h2card" style="display:none">
+    <h2>H2 — handoff timing, arm vs. arm <span class="sub">mean accuracy / w_GD across each arm's seeds; shaded band = ±1 sd across seeds</span></h2>
+    <div class="chartwrap">
+      <svg id="h2chart" viewBox="0 0 900 360" preserveAspectRatio="xMidYMid meet"></svg>
+    </div>
+    <div class="legend" id="h2legend"></div>
+    <p class="hint" id="h2read"></p>
+  </div>
+
+  <div class="card" id="h5card" style="display:none">
+    <h2>H5 — reactivation &amp; gate-clamp control, arm vs. arm <span class="sub">the E2/E3 crux test: did every arm hand off, but only one reactivate?</span></h2>
+    <div class="chartwrap">
+      <svg id="h5chart" viewBox="0 0 900 320" preserveAspectRatio="xMidYMid meet"></svg>
+    </div>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--accent)"></span>DA-request Δ (silenced − intact)</span>
+      <span><span class="swatch" style="background:var(--gd)"></span>GD-clamped accuracy (gate-clamp control)</span>
+      <span><span class="dot" style="background:var(--ok)"></span>policy preserved</span>
+      <span><span class="dot" style="background:var(--bad)"></span>policy NOT preserved</span>
+    </div>
+    <p class="hint" id="h5read"></p>
+  </div>
+
+  <div class="card" id="h3card" style="display:none">
+    <h2>H3 — devaluation dissociation, arm vs. arm <span class="sub">learning-phase drop should be large (value-sensitive); maintenance-phase drop should be ~0 (value-free habit)</span></h2>
+    <div class="chartwrap">
+      <svg id="h3chart" viewBox="0 0 900 300" preserveAspectRatio="xMidYMid meet"></svg>
+    </div>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--accent)"></span>learning-phase drop</span>
+      <span><span class="swatch" style="background:var(--gd)"></span>maintenance-phase drop</span>
+    </div>
+    <p class="hint" id="h3read"></p>
+  </div>
+
+  <div class="gridArms" id="armgrid"></div>
+
+  <div class="empty" id="noState">Load a batch to begin.</div>
+</main>
+
+<script>
+"use strict";
+const B = { exp:null, arms:null, batch_summary:null, run_used:null, armOrder:[] };
+const SVGNS="http://www.w3.org/2000/svg";
+function el(tag,attrs){const e=document.createElementNS(SVGNS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);return e;}
+const ARM_COLORS=["#58a6ff","#d2691e","#3fb950","#bc8cff","#f0a35e","#f85149"];
+function armColor(i){return ARM_COLORS[i%ARM_COLORS.length];}
+
+(function loadEmbedded(){
+  let data;
+  try{ data = JSON.parse(document.getElementById("embedded-batch-data").textContent); }catch(e){ return; }
+  if(!data || !data.arms || !Object.keys(data.arms).length) return;
+  B.exp = data.exp; B.arms = data.arms; B.batch_summary = data.batch_summary; B.run_used = data.run_used;
+  B.armOrder = Object.keys(data.arms);
+  window.addEventListener("DOMContentLoaded", boot);
+})();
+
+function fmt(v){ return (v==null||isNaN(v))? "—" : (+v).toFixed(3); }
+function fmt2(v){ return (v==null||isNaN(v))? "—" : (+v).toFixed(2); }
+function msFmt(ms){ if(!ms) return "—"; const [m,s]=ms; return m==null? "—" : (m.toFixed(3)+" ± "+s.toFixed(3)); }
+
+function boot(){
+  document.getElementById("noState").style.display="none";
+  const meta = "exp "+B.exp+" · "+B.armOrder.length+" arm(s): "+B.armOrder.join(", ");
+  document.getElementById("hdrmeta").textContent = meta;
+
+  renderGate();
+  renderOverview();
+  renderH2();
+  renderH5();
+  renderH3();
+  renderArmCards();
+}
+
+// ----------------------------------------------------------------- gate banner
+function renderGate(){
+  const bs = B.batch_summary;
+  const box = document.getElementById("gatebox");
+  const gv = document.getElementById("gateverdict");
+  if(!bs){
+    box.innerHTML = "<div class='card note'>No <code>batch_summary_*.json</code> found for this experiment — "
+      +"gate-clear status unknown. Per-arm H1 numbers below are computed directly from each seed's "
+      +"<code>results.json</code>, but the headline pass/fail banner needs the batch summary.</div>";
+    return;
+  }
+  if(bs.all_arms_gate_clear){
+    gv.innerHTML = "<span class='pill ok'>GATE CLEAR — all arms</span>";
+    box.innerHTML = "";
+  } else {
+    gv.innerHTML = "<span class='pill bad'>GATE NOT CLEARED</span>";
+    const failing = Object.keys(bs.arms||{}).filter(a=>!bs.arms[a].gate_clear);
+    box.innerHTML =
+      "<div class='gatebanner'><span class='big'>&#9888;</span><div>"+
+      "<div class='big'>GATE NOT CLEARED — contrast uninterpretable</div>"+
+      "<div style='font-weight:400;margin-top:6px;font-size:13px'>"+
+      "Per IMPLEMENTATION_ROADMAP.md §4: every arm must independently clear the H1 learning gate "+
+      "(accuracy ≥ 0.80, binomial p &lt; 1e-3) before any arm-vs-arm contrast below can be interpreted. "+
+      "Failing arm(s): <b>"+(failing.length?failing.join(", "):"none listed")+"</b>. "+
+      "Do not tune to rescue a failing arm — report the failure; the panels below are still shown "+
+      "for diagnostic purposes (e.g. checking whether undertraining vs. a real architecture block is at fault), "+
+      "but treat any apparent arm-vs-arm difference as not yet meaningful.</div></div></div>";
+  }
+}
+
+// ----------------------------------------------------------------- overview table
+function renderOverview(){
+  document.getElementById("overviewcard").style.display="";
+  const bs = B.batch_summary;
+  document.getElementById("overviewsub").textContent = bs ? ("run "+(bs.ts||"")+"_"+(bs.commit||"") ) : "";
+  const tbl = document.getElementById("armtable");
+  let html = "<tr><th>arm</th><th>seeds</th><th>H1 gate</th><th>mean acc ± sd</th>"+
+             "<th>H2 pass</th><th>H3 dissoc. pass</th><th>H5 pass</th><th>gate-clamp preserved</th><th>run used</th></tr>";
+  B.armOrder.forEach((arm,i)=>{
+    const a = B.arms[arm];
+    const h1 = a.h1, h2=a.h2, h3=a.h3, h5=a.h5;
+    const gateClear = h1.gate_clear;
+    const gatePill = "<span class='pill "+(gateClear?"ok":"bad")+"'>"+h1.n_pass+"/"+h1.n_seeds+"</span>";
+    html += "<tr>"+
+      "<td style='color:"+armColor(i)+";font-weight:650'>"+arm+"</td>"+
+      "<td>"+a.n_seeds+"</td>"+
+      "<td>"+gatePill+"</td>"+
+      "<td>"+msFmt(h1.accuracy_mean_sd)+"</td>"+
+      "<td>"+h2.n_pass+"/"+h2.n_seeds+"</td>"+
+      "<td>"+h3.n_pass+"/"+h3.n_seeds+"</td>"+
+      "<td>"+h5.n_pass+"/"+h5.n_seeds+"</td>"+
+      "<td>"+h5.gate_clamp_n_policy_preserved+"/"+h5.gate_clamp_n_seeds+"</td>"+
+      "<td class='note'>"+(B.run_used&&B.run_used[arm]||"—")+"</td>"+
+      "</tr>";
+  });
+  tbl.innerHTML = html;
+}
+
+// ----------------------------------------------------------------- H2 arm-vs-arm
+function renderH2(){
+  const armsWithLogs = B.armOrder.filter(a=>B.arms[a].logs_agg);
+  if(!armsWithLogs.length) return;
+  document.getElementById("h2card").style.display="";
+  const svg = document.getElementById("h2chart"); svg.innerHTML="";
+  const W=900,H=360,mL=52,mR=52,mT=18,mB=42;
+  let xmin=1e18,xmax=-1e18;
+  armsWithLogs.forEach(a=>{
+    const ep=B.arms[a].logs_agg.episode;
+    xmin=Math.min(xmin,ep[0]); xmax=Math.max(xmax,ep[ep.length-1]);
+  });
+  const X=e=> mL + (W-mL-mR)*((e-xmin)/Math.max(1,(xmax-xmin)));
+  const Yacc=v=> (H-mB) - (H-mB-mT)*v;
+  svg.appendChild(el("line",{x1:mL,y1:H-mB,x2:W-mR,y2:H-mB,stroke:"var(--line)"}));
+  svg.appendChild(el("line",{x1:mL,y1:mT,x2:mL,y2:H-mB,stroke:"var(--line)"}));
+  [0,0.25,0.5,0.75,1].forEach(v=>{
+    const y=Yacc(v);
+    svg.appendChild(el("line",{x1:mL,y1:y,x2:W-mR,y2:y,stroke:"var(--line)","stroke-dasharray":"2 4",opacity:0.5}));
+    const tx=el("text",{x:mL-8,y:y+3,"text-anchor":"end",fill:"var(--mut)"}); tx.textContent=v.toFixed(2); svg.appendChild(tx);
+  });
+  svg.appendChild(el("line",{x1:mL,y1:Yacc(0.5),x2:W-mR,y2:Yacc(0.5),stroke:"var(--mut)","stroke-dasharray":"5 5",opacity:0.6}));
+  const xlab=el("text",{x:(mL+W-mR)/2,y:H-6,"text-anchor":"middle",fill:"var(--mut)"}); xlab.textContent="training episode"; svg.appendChild(xlab);
+
+  const legend = document.getElementById("h2legend"); legend.innerHTML="";
+  armsWithLogs.forEach((arm,i)=>{
+    const col = armColor(i);
+    const lg = B.arms[arm].logs_agg;
+    const ep = lg.episode;
+    // shaded ±1sd band for combined_acc, then mean lines for combined/hab-solo/gd-solo
+    if(lg.combined_acc){
+      const m=lg.combined_acc.mean, s=lg.combined_acc.sd;
+      let d="M"+X(ep[0])+","+Yacc(Math.max(0,Math.min(1,m[0]+s[0])));
+      for(let k=1;k<ep.length;k++) d+="L"+X(ep[k])+","+Yacc(Math.max(0,Math.min(1,m[k]+s[k])));
+      for(let k=ep.length-1;k>=0;k--) d+="L"+X(ep[k])+","+Yacc(Math.max(0,Math.min(1,m[k]-s[k])));
+      d+="Z";
+      svg.appendChild(el("path",{d,fill:col,opacity:0.10,stroke:"none"}));
+    }
+    const drawMean=(field,dash)=>{
+      const f=lg[field]; if(!f) return;
+      let d=""; for(let k=0;k<ep.length;k++) d+=(k?"L":"M")+X(ep[k])+","+Yacc(f.mean[k]);
+      const p=el("path",{d,fill:"none",stroke:col,"stroke-width":2});
+      if(dash) p.setAttribute("stroke-dasharray",dash);
+      svg.appendChild(p);
+    };
+    drawMean("combined_acc",null);
+    drawMean("hab_solo_acc","2 3");
+    drawMean("gd_solo_acc","5 4");
+    drawMean("w_gd","1 4");
+
+    const sp=document.createElement("span");
+    sp.innerHTML="<span class='swatch' style='background:"+col+"'></span>"+arm+" (n="+lg.n_seeds+") — solid=combined, short-dash=hab-solo, long-dash=gd-solo, dotted=w_GD";
+    legend.appendChild(sp);
+  });
+
+  // readout: compare hab-onset / wgd-drop-onset means across arms
+  let msg = "";
+  armsWithLogs.forEach(arm=>{
+    const h2 = B.arms[arm].h2;
+    const ho = h2.hab_onset_mean_sd, wd = h2.wgd_drop_onset_mean_sd;
+    msg += arm+": hab-onset ep "+msFmt(ho)+", w_GD-drop ep "+msFmt(wd)+" ("+h2.n_pass+"/"+h2.n_seeds+" seeds pass H2). ";
+  });
+  document.getElementById("h2read").textContent = msg;
+}
+
+// ----------------------------------------------------------------- H5 arm-vs-arm
+function renderH5(){
+  const armsWithH5 = B.armOrder.filter(a=>B.arms[a].h5 && B.arms[a].h5.n_seeds>0);
+  if(!armsWithH5.length) return;
+  document.getElementById("h5card").style.display="";
+  const svg=document.getElementById("h5chart"); svg.innerHTML="";
+  const W=900,H=320,mL=60,mR=60,mT=20,mB=80;
+  // two panels side by side: left = DA-request delta per arm (with seed dots),
+  // right = gate-clamp GD-clamped accuracy per arm (with seed dots + pass/fail colour)
+  const panelW=(W-mL-mR)/2-10;
+  const drawPanel=(x0,values,title,yfmt,zeroLine)=>{
+    const allVals = values.flatMap(v=>v.pts);
+    const vmax=Math.max(0.05,...allVals.map(Math.abs))*1.3;
+    const vmin=zeroLine? -vmax : 0;
+    const Y=v=>(H-mB)-(H-mB-mT)*((v-vmin)/(vmax-vmin));
+    svg.appendChild(el("line",{x1:x0,y1:H-mB,x2:x0+panelW,y2:H-mB,stroke:"var(--line)"}));
+    svg.appendChild(el("line",{x1:x0,y1:mT,x2:x0,y2:H-mB,stroke:"var(--line)"}));
+    if(zeroLine){
+      const y0=Y(0);
+      svg.appendChild(el("line",{x1:x0,y1:y0,x2:x0+panelW,y2:y0,stroke:"var(--mut)","stroke-dasharray":"4 4",opacity:0.6}));
+    }
+    [vmin,(vmin+vmax)/2,vmax].forEach(v=>{
+      const y=Y(v);
+      const tx=el("text",{x:x0-6,y:y+3,"text-anchor":"end",fill:"var(--mut)","font-size":9}); tx.textContent=v.toFixed(3); svg.appendChild(tx);
+    });
+    const slot=panelW/values.length;
+    values.forEach((v,i)=>{
+      const cx=x0+slot*i+slot/2, col=v.color;
+      const bw=slot*0.4;
+      const m=v.mean, s=v.sd;
+      if(m!=null){
+        svg.appendChild(el("rect",{x:cx-bw/2,y:Math.min(Y(0),Y(m)),width:bw,
+          height:Math.abs(Y(m)-Y(0)),fill:col,opacity:0.55,rx:2}));
+        if(s!=null){
+          svg.appendChild(el("line",{x1:cx,y1:Y(m-s),x2:cx,y2:Y(m+s),stroke:col,"stroke-width":1.4}));
+        }
+      }
+      v.pts.forEach((p,j)=>{
+        const jitter=(j%5-2)*2.0;
+        const fill = v.passColors? v.passColors[j] : col;
+        svg.appendChild(el("circle",{cx:cx+jitter,cy:Y(p),r:3,fill,opacity:0.9,stroke:"#06131f","stroke-width":0.6}));
+      });
+      const tx=el("text",{x:cx,y:H-mB+14,"text-anchor":"middle",class:"barlabel"});
+      tx.textContent=v.label; svg.appendChild(tx);
+      const tx2=el("text",{x:cx,y:H-mB+26,"text-anchor":"middle",class:"barlabel","font-size":9});
+      tx2.textContent=v.sub||""; svg.appendChild(tx2);
+    });
+    const ttl=el("text",{x:x0,y:mT-4,"text-anchor":"start","font-size":10,fill:"var(--ink)"}); ttl.textContent=title; svg.appendChild(ttl);
+  };
+
+  const deltaValues = armsWithH5.map((arm,i)=>{
+    const h5=B.arms[arm].h5;
+    const [m,s]=h5.da_request_delta_mean_sd||[null,null];
+    return {label:arm, sub:h5.n_pass+"/"+h5.n_seeds+" pass", mean:m, sd:s,
+             pts:h5.da_request_delta||[], color:armColor(i)};
+  });
+  const clampValues = armsWithH5.map((arm,i)=>{
+    const h5=B.arms[arm].h5;
+    const [m,s]=h5.gate_clamp_acc_gd_clamped_mean_sd||[null,null];
+    return {label:arm, sub:h5.gate_clamp_n_policy_preserved+"/"+h5.gate_clamp_n_seeds+" preserved",
+             mean:m, sd:s, pts:h5.gate_clamp_acc_gd_clamped||[], color:"var(--gd)"};
+  });
+  drawPanel(mL, deltaValues, "DA-request Δ (silenced − intact)", fmt, true);
+  drawPanel(mL+panelW+20, clampValues, "gate-clamp: GD-clamped accuracy", fmt2, false);
+
+  let msg = "The E2/E3 crux test (IMPLEMENTATION_ROADMAP.md §5): both arms may hand off (H2), but only "+
+    "the arm with intact expression-gating should show a positive DA-request Δ and a gate-clamp control "+
+    "that preserves GD accuracy on silencing the habit. Per arm: ";
+  armsWithH5.forEach(arm=>{
+    const h5=B.arms[arm].h5;
+    msg += arm+" Δ="+msFmt(h5.da_request_delta_mean_sd)+", GD-clamped acc="+msFmt(h5.gate_clamp_acc_gd_clamped_mean_sd)+
+      " ("+h5.gate_clamp_n_policy_preserved+"/"+h5.gate_clamp_n_seeds+" seeds preserve policy). ";
+  });
+  document.getElementById("h5read").textContent = msg;
+}
+
+// ----------------------------------------------------------------- H3 arm-vs-arm
+function renderH3(){
+  const armsWithH3 = B.armOrder.filter(a=>B.arms[a].h3 && B.arms[a].h3.n_seeds>0);
+  if(!armsWithH3.length) return;
+  document.getElementById("h3card").style.display="";
+  const svg=document.getElementById("h3chart"); svg.innerHTML="";
+  const W=900,H=300,mL=50,mR=20,mT=20,mB=60;
+  const Y=v=>(H-mB)-(H-mB-mT)*Math.max(0,Math.min(1,v||0));
+  svg.appendChild(el("line",{x1:mL,y1:H-mB,x2:W-mR,y2:H-mB,stroke:"var(--line)"}));
+  svg.appendChild(el("line",{x1:mL,y1:mT,x2:mL,y2:H-mB,stroke:"var(--line)"}));
+  [0,0.25,0.5,0.75,1].forEach(v=>{
+    const y=Y(v);
+    svg.appendChild(el("line",{x1:mL,y1:y,x2:W-mR,y2:y,stroke:"var(--line)","stroke-dasharray":"2 4",opacity:0.4}));
+    const tx=el("text",{x:mL-6,y:y+3,"text-anchor":"end",fill:"var(--mut)","font-size":9}); tx.textContent=v.toFixed(2); svg.appendChild(tx);
+  });
+  const slot=(W-mL-mR)/armsWithH3.length;
+  armsWithH3.forEach((arm,i)=>{
+    const h3=B.arms[arm].h3;
+    const [lm,ls]=h3.learning_drop_mean_sd||[null,null];
+    const [mm,ms]=h3.maintenance_drop_mean_sd||[null,null];
+    const x0=mL+slot*i+slot*0.12, bw=slot*0.32;
+    if(lm!=null){
+      svg.appendChild(el("rect",{x:x0,y:Y(lm),width:bw,height:(H-mB)-Y(lm),fill:"var(--accent)",opacity:0.85,rx:2}));
+      svg.appendChild(el("line",{x1:x0+bw/2,y1:Y(lm-ls),x2:x0+bw/2,y2:Y(lm+ls),stroke:"var(--ink)","stroke-width":1.2}));
+    }
+    if(mm!=null){
+      const x1=x0+bw+6;
+      svg.appendChild(el("rect",{x:x1,y:Y(mm),width:bw,height:(H-mB)-Y(mm),fill:"var(--gd)",opacity:0.85,rx:2}));
+      svg.appendChild(el("line",{x1:x1+bw/2,y1:Y(mm-ms),x2:x1+bw/2,y2:Y(mm+ms),stroke:"var(--ink)","stroke-width":1.2}));
+    }
+    const lab=el("text",{x:x0+bw,y:H-mB+16,"text-anchor":"middle",class:"barlabel"}); lab.textContent=arm; svg.appendChild(lab);
+    const sub=el("text",{x:x0+bw,y:H-mB+28,"text-anchor":"middle",class:"barlabel","font-size":9});
+    sub.textContent=h3.n_pass+"/"+h3.n_seeds+" dissoc. pass"; svg.appendChild(sub);
+  });
+  let msg="Prediction (H3, value-free habit): learning-phase drop large, maintenance-phase drop ~0. Per arm: ";
+  armsWithH3.forEach(arm=>{
+    const h3=B.arms[arm].h3;
+    msg += arm+": learning="+msFmt(h3.learning_drop_mean_sd)+", maintenance="+msFmt(h3.maintenance_drop_mean_sd)+". ";
+  });
+  document.getElementById("h3read").textContent = msg;
+}
+
+// ----------------------------------------------------------------- per-arm cards (seed drill-down)
+function renderArmCards(){
+  const grid = document.getElementById("armgrid");
+  grid.innerHTML="";
+  B.armOrder.forEach((arm,i)=>{
+    const a = B.arms[arm];
+    const col = armColor(i);
+    const card = document.createElement("div");
+    card.className = "card armcard";
+    card.style.borderLeftColor = col;
+    let seedRows = "";
+    (a.seed_dirs||[]).forEach((sd,j)=>{
+      const link = a.seed_links && a.seed_links[sd];
+      const accv = (a.h1.accuracy||[])[j];
+      seedRows += "<a class='btn' "+(link?("href='"+link+"' target='_blank'"):"")+
+        (link? "" : "style='opacity:.4;cursor:default'")+
+        ">"+sd+" (acc "+fmt2(accv)+")"+(link?" &rarr;":" (no traj.)")+"</a>";
+    });
+    card.innerHTML =
+      "<h3><span class='armname'>"+arm+"</span>"+
+      "<span class='pill "+(a.h1.gate_clear?"ok":"bad")+"'>H1 "+a.h1.n_pass+"/"+a.h1.n_seeds+"</span>"+
+      "<span class='note'>n="+a.n_seeds+" seed(s)</span></h3>"+
+      "<div class='kv'>"+
+        "<dt>H1 accuracy</dt><dd>"+msFmt(a.h1.accuracy_mean_sd)+"</dd>"+
+        "<dt>H2 hab-onset ep</dt><dd>"+msFmt(a.h2.hab_onset_mean_sd)+"</dd>"+
+        "<dt>H2 w_GD-drop ep</dt><dd>"+msFmt(a.h2.wgd_drop_onset_mean_sd)+"</dd>"+
+        "<dt>H3 learning drop</dt><dd>"+msFmt(a.h3.learning_drop_mean_sd)+"</dd>"+
+        "<dt>H3 maintenance drop</dt><dd>"+msFmt(a.h3.maintenance_drop_mean_sd)+"</dd>"+
+        "<dt>H5 DA-request Δ</dt><dd>"+msFmt(a.h5.da_request_delta_mean_sd)+"</dd>"+
+        "<dt>H5 gate-clamp preserved</dt><dd>"+a.h5.gate_clamp_n_policy_preserved+"/"+a.h5.gate_clamp_n_seeds+"</dd>"+
+        "<dt>H6 decoder acc</dt><dd>"+msFmt(a.h6.decoder_acc_mean_sd)+"</dd>"+
+      "</div>"+
+      "<div class='seedlinks'>"+seedRows+"</div>"+
+      "<p class='hint'>Click a seed to open its full per-seed viewer (trial player, H2 chart, H5 panel, "+
+      "static figures) &mdash; the same page <code>build_viz.py</code> produces.</p>";
+    grid.appendChild(card);
+  });
+}
+</script>
+</body>
+</html>

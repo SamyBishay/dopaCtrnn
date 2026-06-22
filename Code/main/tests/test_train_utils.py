@@ -1,6 +1,16 @@
 """
-Tests for discounted() and _physical_cores() in train.py.
-Written from spec — no implementation files were read.
+Tests for discounted_batch() and _physical_cores() in train.py.
+
+discounted_batch() replaced the old per-episode discounted() helper in the
+vectorisation rewrite: it operates on [T, B] reward/valid tensors instead of
+a flat per-episode rewards list, so every B>1 episodes are discounted in one
+shot instead of with a Python loop per episode. `discounted()` itself is
+gone — there is no longer a single-episode entry point, just the B=1 case of
+the batched one. The wrapper below recovers the old (rewards_list, gamma,
+dev) -> Tensor[T] signature exactly as a thin adapter over the batched
+function (reshape to [T, 1], an all-True valid mask, squeeze back to [T]),
+so the original test cases (written against the per-episode semantics) still
+exercise the same recursion with no behavioural change.
 """
 
 import sys
@@ -10,15 +20,26 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import torch
 import pytest
-from train import discounted, _physical_cores
+from train import discounted_batch, _physical_cores
+
+
+def discounted(rewards_list, gamma, dev):
+    """B=1 adapter over discounted_batch(), matching the old discounted()
+    signature: a flat per-episode rewards list -> a [T] tensor of returns."""
+    T = len(rewards_list)
+    r = torch.tensor(rewards_list, dtype=torch.float32, device=dev).reshape(T, 1)
+    valid = torch.ones(T, 1, dtype=torch.bool, device=dev)
+    out = discounted_batch(r, gamma, valid)
+    return out.reshape(T)
 
 
 # ---------------------------------------------------------------------------
-# discounted()
+# discounted_batch() (via the discounted() B=1 adapter above)
 # ---------------------------------------------------------------------------
 
 class TestDiscounted:
-    """Tests for discounted(rewards_list, gamma, dev) -> Tensor."""
+    """Tests for discounted(rewards_list, gamma, dev) -> Tensor, the B=1 case
+    of train.discounted_batch()."""
 
     # --- basic correctness --------------------------------------------------
 

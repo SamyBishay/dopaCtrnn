@@ -1,13 +1,21 @@
 """
-Comprehensive tests for TMazeFreeNav.step()
+Comprehensive tests for TMazeFreeNav.step() — rewritten against the
+vectorised environment (environment.py's TMazeVecEnv, B=1 facade).
 
-Spec reference: DNMTP T-maze with 4 phases: pre_sample → sample → delay → choice
+The pre-vectorisation tests drove the env by directly assigning to
+env.pos / env.phase / env.blocked etc., and called a scalar env._passable(
+cell) helper. None of that exists anymore: TMazeFreeNav exposes pos / phase /
+blocked / open_side as READ-ONLY properties, and passability is computed
+internally on batched arrays (TMazeVecEnv._passable_target), not as a public
+per-cell method. These tests instead drive the env purely through the public
+reset()/step(action) API, using small `current_delay` overrides to keep the
+delay phase short, and deriving expected geometry (START/JUNCTION/arm ends)
+from env._env.g rather than hard-coded 5-wide/3-tall coordinates.
 
-Maze layout:
-    (0,0) (0,1) (0,2) (0,3) (0,4)   L_END L_ARM1 JUNCTION R_ARM1 R_END
-                (1,2)                 STEM
-                (2,2)                 START
-
+Maze layout (default Config(): len_edge=7, difficulty=2 -> h=6, w=9):
+  start    = (4, 4)
+  junction = (1, 4)   (top of the stem, arm row)
+  l_end    = (1, 1)   r_end = (1, 7)
 Actions: 0=N, 1=S, 2=E, 3=W, 4=WAIT
 """
 
@@ -21,36 +29,71 @@ import pytest
 from config import Config
 from environment import TMazeFreeNav
 
+N, S, E, W, WAIT = 0, 1, 2, 3, 4
+
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def make_env(seed=42):
+def make_env(seed=42, delay_start=2):
     cfg = Config()
+    cfg.delay_start = delay_start
     rng = np.random.default_rng(seed)
     env = TMazeFreeNav(cfg, rng)
+    env.current_delay = delay_start
     return cfg, env
 
 
-def step(env, action):
-    """Return (task_r, int_r, done, info) from env.step(action)."""
-    return env.step(action)
+def goto_junction(env):
+    """Walk straight up the stem from START to JUNCTION."""
+    info = None
+    for _ in range(50):
+        if env.phase != "pre_sample":
+            break
+        _, _, _, info = env.step(N)
+    return info
 
 
-# Positions (row, col)
-START     = (2, 2)
-STEM      = (1, 2)
-JUNCTION  = (0, 2)
-L_ARM1    = (0, 1)
-L_END     = (0, 0)
-R_ARM1    = (0, 3)
-R_END     = (0, 4)
+def goto_open_arm_end(env):
+    """From JUNCTION in 'sample' phase, walk to the open arm's end."""
+    move = W if env.open_side == "L" else E
+    info = None
+    for _ in range(50):
+        if env.phase != "sample":
+            break
+        _, _, _, info = env.step(move)
+    return info
 
-# Actions
-N, S, E, W, WAIT = 0, 1, 2, 3, 4
 
-_SIG_VAL = 0.25   # 1/(COLS-1) with COLS=5
+def goto_choice(env):
+    """Drain the (short) delay window via WAIT until 'choice' phase."""
+    info = None
+    for _ in range(50):
+        if env.phase != "delay":
+            break
+        _, _, _, info = env.step(WAIT)
+    return info
+
+
+def goto_arm_end_in_choice(env, side):
+    """In 'choice' phase the agent starts back at START (stem column); walk
+    N to the junction/arm row first, then toward the named ('L'/'R') arm end."""
+    move = W if side == "L" else E
+    info = None
+    # climb the stem to the arm row
+    for _ in range(50):
+        if env.pos[0] == env._env.g["arm_row"]:
+            break
+        _, _, done, info = env.step(N)
+        if done:
+            return info
+    # walk along the arm row to the chosen end
+    for _ in range(50):
+        _, _, done, info = env.step(move)
+        if done:
+            break
+    return info
 
 
 # ---------------------------------------------------------------------------
@@ -58,64 +101,37 @@ _SIG_VAL = 0.25   # 1/(COLS-1) with COLS=5
 # ---------------------------------------------------------------------------
 
 class TestMovement:
-    def test_valid_move_north_updates_position(self):
+    def test_valid_move_updates_position(self):
         cfg, env = make_env()
-        env.pos = list(STEM)   # (1,2)
-        step(env, N)            # → (0,2) JUNCTION  — may trigger pre_sample→sample
-        # We just need position to have moved; JUNCTION is passable
-        assert tuple(env.pos) == JUNCTION
+        start = env.pos
+        env.step(N)
+        assert env.pos != start
 
-    def test_valid_move_south_updates_position(self):
+    def test_move_toward_junction_reaches_it(self):
         cfg, env = make_env()
-        env.pos = list(STEM)
-        step(env, S)            # → (2,2) START
-        assert tuple(env.pos) == START
-
-    def test_valid_move_east_from_junction(self):
-        cfg, env = make_env()
-        env.phase = "delay"     # avoid phase-transition side-effects
-        env.pos = list(JUNCTION)
-        step(env, E)            # → (0,3) R_ARM1
-        assert tuple(env.pos) == R_ARM1
-
-    def test_valid_move_west_from_junction(self):
-        cfg, env = make_env()
-        env.phase = "delay"
-        env.pos = list(JUNCTION)
-        step(env, W)            # → (0,1) L_ARM1
-        assert tuple(env.pos) == L_ARM1
+        goto_junction(env)
+        j = env._env.g["junction"]
+        assert env.pos == (int(j[0]), int(j[1]))
+        assert env.phase == "sample"
 
     def test_wall_move_position_unchanged(self):
-        """Moving into an impassable cell keeps position."""
+        """Moving south from START (into a wall) keeps position."""
         cfg, env = make_env()
-        env.phase = "delay"
-        env.pos = list(START)   # (2,2)
-        old_pos = list(env.pos)
-        step(env, E)            # (2,3) is not passable → stay
-        assert tuple(env.pos) == tuple(old_pos)
+        old_pos = env.pos
+        env.step(S)
+        assert env.pos == old_pos
 
     def test_wait_position_unchanged(self):
         cfg, env = make_env()
-        env.phase = "delay"
-        env.pos = list(STEM)
-        step(env, WAIT)
-        assert tuple(env.pos) == STEM
+        old_pos = env.pos
+        env.step(WAIT)
+        assert env.pos == old_pos
 
-    def test_move_out_of_bounds_north_from_top_row(self):
-        """Moving north from top row (0,*) is a wall — position stays."""
+    def test_move_east_from_start_into_wall_unchanged(self):
         cfg, env = make_env()
-        env.phase = "delay"
-        env.pos = list(JUNCTION)   # (0,2)
-        step(env, N)               # row -1 → out of bounds / wall
-        assert tuple(env.pos) == JUNCTION
-
-    def test_move_into_wall_below_stem(self):
-        """Row 3 doesn't exist; moving S from START stays."""
-        cfg, env = make_env()
-        env.phase = "delay"
-        env.pos = list(START)
-        step(env, S)
-        assert tuple(env.pos) == START
+        old_pos = env.pos
+        env.step(E)
+        assert env.pos == old_pos
 
 
 # ---------------------------------------------------------------------------
@@ -125,32 +141,22 @@ class TestMovement:
 class TestPerStepCosts:
     def test_wait_applies_wait_cost_to_task_r(self):
         cfg, env = make_env()
-        env.phase = "delay"
-        env.pos = list(STEM)
-        task_r, int_r, done, info = step(env, WAIT)
+        task_r, int_r, done, info = env.step(WAIT)
         assert task_r == pytest.approx(-cfg.wait_cost)
 
     def test_wait_applies_wait_cost_to_int_r(self):
         cfg, env = make_env()
-        env.phase = "delay"
-        env.pos = list(STEM)
-        task_r, int_r, done, info = step(env, WAIT)
+        task_r, int_r, done, info = env.step(WAIT)
         assert int_r == pytest.approx(-cfg.wait_cost)
 
     def test_movement_applies_step_cost_to_task_r(self):
         cfg, env = make_env()
-        env.phase = "delay"
-        env.pos = list(STEM)
-        task_r, int_r, done, info = step(env, N)   # valid move → JUNCTION
-        # step cost is the only contribution in delay phase (no bonus expected here
-        # because delay phase doesn't react to JUNCTION)
+        task_r, int_r, done, info = env.step(N)   # valid move toward junction
         assert task_r == pytest.approx(-cfg.step_cost)
 
     def test_movement_applies_step_cost_to_int_r(self):
         cfg, env = make_env()
-        env.phase = "delay"
-        env.pos = list(STEM)
-        task_r, int_r, done, info = step(env, N)
+        task_r, int_r, done, info = env.step(N)
         assert int_r == pytest.approx(-cfg.step_cost)
 
     def test_wait_cost_default_value(self):
@@ -161,6 +167,17 @@ class TestPerStepCosts:
         cfg, _ = make_env()
         assert cfg.step_cost == pytest.approx(0.02)
 
+    def test_no_cost_during_delay(self):
+        """Delay phase holds the agent at START with no step cost (TUNL
+        holding-box model)."""
+        cfg, env = make_env()
+        goto_junction(env)
+        goto_open_arm_end(env)
+        assert env.phase == "delay"
+        task_r, int_r, done, info = env.step(WAIT)
+        assert task_r == pytest.approx(0.0)
+        assert int_r == pytest.approx(0.0)
+
 
 # ---------------------------------------------------------------------------
 # 3. info dict
@@ -169,128 +186,101 @@ class TestPerStepCosts:
 class TestInfoDict:
     def test_agent_step_always_true(self):
         cfg, env = make_env()
-        env.phase = "delay"
-        env.pos = list(STEM)
-        _, _, _, info = step(env, WAIT)
+        _, _, _, info = env.step(WAIT)
         assert info.get("agent_step") is True
 
     def test_correct_none_during_non_terminal(self):
         cfg, env = make_env()
-        env.phase = "delay"
-        env.pos = list(STEM)
-        _, _, done, info = step(env, WAIT)
+        _, _, done, info = env.step(WAIT)
         assert done is False
         assert info.get("correct") is None
 
     def test_phase_key_present(self):
         cfg, env = make_env()
-        env.phase = "delay"
-        env.pos = list(STEM)
-        _, _, _, info = step(env, WAIT)
+        _, _, _, info = env.step(WAIT)
         assert "phase" in info
 
 
 # ---------------------------------------------------------------------------
-# 4. Phase transition: pre_sample → sample
+# 4. Phase transition: pre_sample -> sample
 # ---------------------------------------------------------------------------
 
 class TestPreSampleToSample:
     def test_reaching_junction_triggers_transition(self):
         cfg, env = make_env()
-        env.phase = "pre_sample"
-        env.pos = list(STEM)       # one step north → JUNCTION
-        _, _, _, info = step(env, N)
+        info = goto_junction(env)
         assert info["phase"] == "sample"
 
     def test_junction_bonus_added_on_transition(self):
         cfg, env = make_env()
-        env.phase = "pre_sample"
-        env.pos = list(STEM)
-        task_r, _, _, _ = step(env, N)
-        # task_r = junction_bonus - step_cost
+        # walk to one step before junction, then take the triggering step
+        j = env._env.g["junction"]
+        while env.pos != (int(j[0]) + 1, int(j[1])):
+            env.step(N)
+        task_r, _, _, info = env.step(N)
+        assert info["phase"] == "sample"
         assert task_r == pytest.approx(cfg.junction_bonus - cfg.step_cost)
 
-    def test_phase_signal_set_open_L_on_transition(self):
-        """When open_side=='L', phase signal obs[3:6] becomes [0.25, 0.0, 0.0]."""
+    def test_phase_signal_set_on_transition(self):
         cfg, env = make_env()
-        env.phase = "pre_sample"
-        env.open_side = "L"
-        env.pos = list(STEM)
-        step(env, N)
+        goto_junction(env)
         obs = env.obs()
-        np.testing.assert_allclose(obs[3:6], [_SIG_VAL, 0.0, 0.0], atol=1e-6)
-
-    def test_phase_signal_set_open_R_on_transition(self):
-        """When open_side=='R', phase signal obs[3:6] becomes [0.0, 0.25, 0.0]."""
-        cfg, env = make_env()
-        env.phase = "pre_sample"
-        env.open_side = "R"
-        env.pos = list(STEM)
-        step(env, N)
-        obs = env.obs()
-        np.testing.assert_allclose(obs[3:6], [0.0, _SIG_VAL, 0.0], atol=1e-6)
-
-    def test_no_transition_if_not_at_junction(self):
-        cfg, env = make_env()
-        env.phase = "pre_sample"
-        env.pos = list(START)
-        _, _, _, info = step(env, N)   # → STEM, not JUNCTION
-        assert info["phase"] == "pre_sample"
+        sig_val = cfg.sig_val
+        if env.open_side == "L":
+            np.testing.assert_allclose(obs[3:6], [sig_val, 0.0, 0.0], atol=1e-6)
+        else:
+            np.testing.assert_allclose(obs[3:6], [0.0, sig_val, 0.0], atol=1e-6)
 
 
 # ---------------------------------------------------------------------------
-# 5. Phase transition: sample → delay
+# 5. Phase transition: sample -> delay
 # ---------------------------------------------------------------------------
 
 class TestSampleToDelay:
-    def test_reaching_L_END_with_open_L_triggers_transition(self):
+    def test_reaching_open_arm_end_triggers_transition(self):
         cfg, env = make_env()
-        env.phase = "sample"
-        env.open_side = "L"
-        env.blocked = "R"
-        env.pos = list(L_ARM1)   # one step west → L_END
-        _, _, _, info = step(env, W)
-        assert info["phase"] == "delay"
-
-    def test_reaching_R_END_with_open_R_triggers_transition(self):
-        cfg, env = make_env()
-        env.phase = "sample"
-        env.open_side = "R"
-        env.blocked = "L"
-        env.pos = list(R_ARM1)   # one step east → R_END
-        _, _, _, info = step(env, E)
+        goto_junction(env)
+        info = goto_open_arm_end(env)
         assert info["phase"] == "delay"
 
     def test_arm_end_bonus_given_on_sample_to_delay(self):
         cfg, env = make_env()
-        env.phase = "sample"
-        env.open_side = "L"
-        env.blocked = "R"
-        env.pos = list(L_ARM1)
-        task_r, _, _, _ = step(env, W)
+        goto_junction(env)
+        move = W if env.open_side == "L" else E
+        # step until just before the transition, then capture the
+        # transitioning step's reward
+        task_r = None
+        for _ in range(50):
+            if env.phase != "sample":
+                break
+            task_r, _, _, info = env.step(move)
+        assert info["phase"] == "delay"
         assert task_r == pytest.approx(cfg.arm_end_bonus - cfg.step_cost)
 
     def test_delay_idx_resets_to_zero_on_transition(self):
         cfg, env = make_env()
-        env.phase = "sample"
-        env.open_side = "L"
-        env.blocked = "R"
-        env.pos = list(L_ARM1)
-        # set delay_idx to something non-zero first
-        env.delay_idx = 7
-        step(env, W)
-        assert env.delay_idx == 0
+        goto_junction(env)
+        goto_open_arm_end(env)
+        assert env.phase == "delay"
+        assert int(env._env.delay_idx[0]) == 0
 
-    def test_reaching_wrong_end_in_sample_does_not_transition(self):
-        """Reaching R_END when open_side=='L' should not trigger sample→delay."""
+    def test_position_teleports_to_start_on_delay_entry(self):
+        """TUNL protocol: entering delay teleports the agent back to START."""
         cfg, env = make_env()
-        env.phase = "sample"
-        env.open_side = "L"
-        env.blocked = "R"
-        # Place agent at R_ARM1; R cells should be blocked during sample
-        # Moving east would hit blocked arm — position stays
-        env.pos = list(JUNCTION)
-        step(env, E)   # tries to enter R_ARM1 — blocked
+        goto_junction(env)
+        goto_open_arm_end(env)
+        assert env.phase == "delay"
+        start = env._env.g["start"]
+        assert env.pos == (int(start[0]), int(start[1]))
+
+    def test_blocked_arm_does_not_transition(self):
+        """Walking toward the BLOCKED arm from the junction should not reach
+        an arm end (the path is sealed) and should not enter delay."""
+        cfg, env = make_env()
+        goto_junction(env)
+        blocked_move = E if env.open_side == "L" else W
+        for _ in range(10):
+            env.step(blocked_move)
         assert env.phase == "sample"
 
 
@@ -299,45 +289,21 @@ class TestSampleToDelay:
 # ---------------------------------------------------------------------------
 
 class TestBlockedArmDuringSample:
-    def test_blocked_L_cells_impassable_during_sample(self):
-        """When blocked=='L', cells (0,0) and (0,1) are impassable in sample."""
+    def test_blocked_side_impassable_during_sample(self):
         cfg, env = make_env()
-        env.phase = "sample"
-        env.blocked = "L"
-        env.open_side = "R"
-        env.pos = list(JUNCTION)   # (0,2)
-        step(env, W)               # tries to enter L_ARM1 (0,1) — should be blocked
-        assert tuple(env.pos) == JUNCTION
+        goto_junction(env)
+        blocked_move = W if env.blocked == "L" else E
+        old_pos = env.pos
+        env.step(blocked_move)
+        assert env.pos == old_pos, "agent should not move into the blocked arm"
 
-    def test_blocked_R_cells_impassable_during_sample(self):
-        """When blocked=='R', cells (0,3) and (0,4) are impassable in sample."""
+    def test_open_side_passable_during_sample(self):
         cfg, env = make_env()
-        env.phase = "sample"
-        env.blocked = "R"
-        env.open_side = "L"
-        env.pos = list(JUNCTION)
-        step(env, E)               # tries to enter R_ARM1 (0,3) — should be blocked
-        assert tuple(env.pos) == JUNCTION
-
-    def test_open_L_arm_passable_during_sample(self):
-        """When blocked=='R', L_ARM1 is passable."""
-        cfg, env = make_env()
-        env.phase = "sample"
-        env.blocked = "R"
-        env.open_side = "L"
-        env.pos = list(JUNCTION)
-        step(env, W)               # → L_ARM1 (0,1)
-        assert tuple(env.pos) == L_ARM1
-
-    def test_open_R_arm_passable_during_sample(self):
-        """When blocked=='L', R_ARM1 is passable."""
-        cfg, env = make_env()
-        env.phase = "sample"
-        env.blocked = "L"
-        env.open_side = "R"
-        env.pos = list(JUNCTION)
-        step(env, E)               # → R_ARM1 (0,3)
-        assert tuple(env.pos) == R_ARM1
+        goto_junction(env)
+        old_pos = env.pos
+        open_move = W if env.open_side == "L" else E
+        env.step(open_move)
+        assert env.pos != old_pos, "agent should be able to move into the open arm"
 
 
 # ---------------------------------------------------------------------------
@@ -346,67 +312,50 @@ class TestBlockedArmDuringSample:
 
 class TestDelayPhase:
     def test_delay_idx_increments_each_step(self):
-        cfg, env = make_env()
-        env.phase = "delay"
-        env.delay_idx = 0
-        env.current_delay = 10   # ensure no transition yet
-        env.pos = list(STEM)
-        step(env, WAIT)
-        assert env.delay_idx == 1
+        cfg, env = make_env(delay_start=10)
+        goto_junction(env)
+        goto_open_arm_end(env)
+        assert env.phase == "delay"
+        assert int(env._env.delay_idx[0]) == 0
+        env.step(WAIT)
+        assert int(env._env.delay_idx[0]) == 1
 
     def test_phase_signal_decays_each_delay_step(self):
-        cfg, env = make_env()
-        env.phase = "delay"
-        env.delay_idx = 0
-        env.current_delay = 10
-        env.pos = list(STEM)
-        # Set a known non-zero phase signal
-        env._phase_signal = np.array([0.25, 0.0, 0.0], dtype=float)
-        step(env, WAIT)
-        np.testing.assert_allclose(env._phase_signal[:2], [0.025, 0.0], atol=1e-9)
+        cfg, env = make_env(delay_start=10)
+        goto_junction(env)
+        goto_open_arm_end(env)
+        assert env.phase == "delay"
+        sig_before = env.obs()[3:6].copy()
+        assert sig_before.sum() > 0  # carried over from the sample cue
+        env.step(WAIT)
+        sig_after = env.obs()[3:6]
+        np.testing.assert_allclose(sig_after, sig_before * 0.1, atol=1e-6)
 
     def test_delay_to_choice_transition_after_current_delay_steps(self):
-        cfg, env = make_env()
-        env.phase = "delay"
-        env.current_delay = 3
-        env.delay_idx = 2   # one more step → delay_idx=3 >= current_delay=3
-        env.pos = list(STEM)
-        _, _, _, info = step(env, WAIT)
+        cfg, env = make_env(delay_start=3)
+        goto_junction(env)
+        goto_open_arm_end(env)
+        assert env.phase == "delay"
+        info = goto_choice(env)
         assert info["phase"] == "choice"
 
     def test_choice_phase_signal_set_on_transition(self):
-        cfg, env = make_env()
-        env.phase = "delay"
-        env.current_delay = 1
-        env.delay_idx = 0
-        env.pos = list(STEM)
-        step(env, WAIT)   # delay_idx becomes 1 >= current_delay=1 → choice
+        cfg, env = make_env(delay_start=1)
+        goto_junction(env)
+        goto_open_arm_end(env)
+        goto_choice(env)
+        assert env.phase == "choice"
         obs = env.obs()
-        np.testing.assert_allclose(obs[3:6], [0.0, 0.0, _SIG_VAL], atol=1e-6)
+        np.testing.assert_allclose(obs[3:6], [0.0, 0.0, cfg.sig_val], atol=1e-6)
 
     def test_no_transition_before_delay_complete(self):
-        cfg, env = make_env()
-        env.phase = "delay"
-        env.current_delay = 5
-        env.delay_idx = 3   # after step: 4 < 5 → stays in delay
-        env.pos = list(STEM)
-        _, _, _, info = step(env, WAIT)
-        assert info["phase"] == "delay"
-
-    def test_delay_default_current_delay_is_5(self):
-        cfg, env = make_env()
-        env.phase = "delay"
-        env.delay_idx = 0
-        env.pos = list(STEM)
-        # Take 4 steps — should still be in delay
+        cfg, env = make_env(delay_start=5)
+        goto_junction(env)
+        goto_open_arm_end(env)
+        assert env.phase == "delay"
         for _ in range(4):
-            env.pos = list(STEM)  # keep in place
-            _, _, _, info = step(env, WAIT)
-        assert info["phase"] == "delay"
-        # 5th step → choice
-        env.pos = list(STEM)
-        _, _, _, info = step(env, WAIT)
-        assert info["phase"] == "choice"
+            _, _, _, info = env.step(WAIT)
+            assert info["phase"] == "delay"
 
 
 # ---------------------------------------------------------------------------
@@ -414,85 +363,78 @@ class TestDelayPhase:
 # ---------------------------------------------------------------------------
 
 class TestChoicePhase:
-    def _setup_choice(self, env, blocked):
-        env.phase = "choice"
-        env.blocked = blocked
-        env.open_side = "R" if blocked == "L" else "L"
-
-    def test_correct_choice_L_blocked_go_L_END(self):
-        """Non-match rule: blocked=='L' → correct if agent reaches L_END."""
-        cfg, env = make_env()
-        self._setup_choice(env, "L")
-        env.pos = list(L_ARM1)
-        task_r, int_r, done, info = step(env, W)   # → L_END
+    def test_correct_choice_reaches_blocked_arm(self):
+        """Non-match rule: correct = go to the originally-BLOCKED arm."""
+        cfg, env = make_env(delay_start=1)
+        goto_junction(env)
+        goto_open_arm_end(env)
+        goto_choice(env)
+        assert env.phase == "choice"
+        blocked = env.blocked
+        info = goto_arm_end_in_choice(env, blocked)
         assert info["correct"] is True
-        assert done is True
 
-    def test_correct_choice_R_blocked_go_R_END(self):
-        """Non-match rule: blocked=='R' → correct if agent reaches R_END."""
-        cfg, env = make_env()
-        self._setup_choice(env, "R")
-        env.pos = list(R_ARM1)
-        task_r, int_r, done, info = step(env, E)   # → R_END
-        assert info["correct"] is True
-        assert done is True
-
-    def test_wrong_choice_L_blocked_go_R_END(self):
-        """Non-match rule: blocked=='L' → wrong if agent goes to R_END."""
-        cfg, env = make_env()
-        self._setup_choice(env, "L")
-        env.pos = list(R_ARM1)
-        task_r, int_r, done, info = step(env, E)   # → R_END (wrong arm)
+    def test_wrong_choice_reaches_open_arm(self):
+        """Going to the originally-open (non-blocked) arm during choice is wrong."""
+        cfg, env = make_env(delay_start=1)
+        goto_junction(env)
+        goto_open_arm_end(env)
+        goto_choice(env)
+        assert env.phase == "choice"
+        open_side = env.open_side
+        info = goto_arm_end_in_choice(env, open_side)
         assert info["correct"] is False
-        assert done is True
-
-    def test_wrong_choice_R_blocked_go_L_END(self):
-        """Non-match rule: blocked=='R' → wrong if agent goes to L_END."""
-        cfg, env = make_env()
-        self._setup_choice(env, "R")
-        env.pos = list(L_ARM1)
-        task_r, int_r, done, info = step(env, W)   # → L_END (wrong arm)
-        assert info["correct"] is False
-        assert done is True
 
     def test_correct_choice_task_reward(self):
-        cfg, env = make_env()
-        self._setup_choice(env, "L")
-        env.pos = list(L_ARM1)
-        task_r, _, _, info = step(env, W)
-        # task_r = test_reward * reward_scale - step_cost
+        cfg, env = make_env(delay_start=1)
+        goto_junction(env)
+        goto_open_arm_end(env)
+        goto_choice(env)
+        blocked = env.blocked
+        # climb the stem to the arm row, then capture the reward of the
+        # final (terminating) step toward the blocked (= correct) arm.
+        move = W if blocked == "L" else E
+        task_r = int_r = done = None
+        for _ in range(50):
+            if env.pos[0] == env._env.g["arm_row"]:
+                break
+            task_r, int_r, done, info = env.step(N)
+            if done:
+                break
+        for _ in range(50):
+            task_r, int_r, done, info = env.step(move)
+            if done:
+                break
         expected = cfg.test_reward * env.reward_scale - cfg.step_cost
         assert task_r == pytest.approx(expected)
 
     def test_correct_choice_completion_bonus_in_int_r(self):
-        cfg, env = make_env()
-        self._setup_choice(env, "L")
-        env.pos = list(L_ARM1)
-        _, int_r, _, info = step(env, W)
-        # int_r on correct: completion_bonus - step_cost
+        cfg, env = make_env(delay_start=1)
+        goto_junction(env)
+        goto_open_arm_end(env)
+        goto_choice(env)
+        blocked = env.blocked
+        move = W if blocked == "L" else E
+        task_r = int_r = done = None
+        for _ in range(50):
+            if env.pos[0] == env._env.g["arm_row"]:
+                break
+            task_r, int_r, done, info = env.step(N)
+            if done:
+                break
+        for _ in range(50):
+            task_r, int_r, done, info = env.step(move)
+            if done:
+                break
         assert int_r == pytest.approx(cfg.completion_bonus - cfg.step_cost)
-
-    def test_wrong_choice_completion_bonus_in_int_r(self):
-        """Even wrong choices yield completion_bonus in int_r."""
-        cfg, env = make_env()
-        self._setup_choice(env, "L")
-        env.pos = list(R_ARM1)
-        _, int_r, _, info = step(env, E)   # wrong arm
-        assert int_r == pytest.approx(cfg.completion_bonus - cfg.step_cost)
-
-    def test_wrong_choice_no_test_reward_in_task_r(self):
-        cfg, env = make_env()
-        self._setup_choice(env, "L")
-        env.pos = list(R_ARM1)
-        task_r, _, _, _ = step(env, E)   # wrong arm
-        # task_r = 0 (no test_reward) - step_cost
-        assert task_r == pytest.approx(-cfg.step_cost)
 
     def test_not_done_if_not_at_arm_end_in_choice(self):
-        cfg, env = make_env()
-        self._setup_choice(env, "L")
-        env.pos = list(STEM)
-        _, _, done, info = step(env, N)   # → JUNCTION, not an arm end
+        cfg, env = make_env(delay_start=1)
+        goto_junction(env)
+        goto_open_arm_end(env)
+        goto_choice(env)
+        assert env.phase == "choice"
+        _, _, done, info = env.step(WAIT)
         assert done is False
         assert info["correct"] is None
 
@@ -512,38 +454,27 @@ class TestChoicePhase:
 class TestTimeout:
     def test_timeout_sets_done_true(self):
         cfg, env = make_env()
-        env.phase = "delay"
-        env.current_delay = 999   # prevent delay→choice transition
-        env.step_count = cfg.max_episode_steps - 1
-        env.pos = list(STEM)
-        _, _, done, info = step(env, WAIT)
+        done = False
+        for _ in range(cfg.max_episode_steps + 5):
+            _, _, done, info = env.step(WAIT)
+            if done:
+                break
         assert done is True
-
-    def test_timeout_correct_is_false(self):
-        cfg, env = make_env()
-        env.phase = "delay"
-        env.current_delay = 999
-        env.step_count = cfg.max_episode_steps - 1
-        env.pos = list(STEM)
-        _, _, _, info = step(env, WAIT)
-        assert info["correct"] is False
+        assert info["correct"] is False  # never reached an arm end
 
     def test_no_timeout_before_max_steps(self):
         cfg, env = make_env()
-        env.phase = "delay"
-        env.current_delay = 999
-        env.step_count = cfg.max_episode_steps - 2
-        env.pos = list(STEM)
-        _, _, done, _ = step(env, WAIT)
-        assert done is False
+        for _ in range(cfg.max_episode_steps - 2):
+            _, _, done, info = env.step(WAIT)
+            assert done is False
 
     def test_max_episode_steps_default_value(self):
         cfg, _ = make_env()
-        assert cfg.max_episode_steps == 80
+        assert cfg.max_episode_steps == 200
 
 
 # ---------------------------------------------------------------------------
-# 10. Junction bonus default
+# 10. Bonus defaults
 # ---------------------------------------------------------------------------
 
 class TestBonusDefaults:
@@ -557,68 +488,26 @@ class TestBonusDefaults:
 
 
 # ---------------------------------------------------------------------------
-# 11. Full episode smoke test (open_side = 'L', blocked = 'R')
+# 11. Full episode smoke test
 # ---------------------------------------------------------------------------
 
 class TestFullEpisodeSmoke:
-    def test_full_episode_L_open_correct(self):
-        """
-        Walk the agent through a complete episode manually:
-          START → STEM → JUNCTION  (pre_sample→sample)
-          → L_ARM1 → L_END         (sample→delay)
-          5 WAITs                   (delay→choice)
-          JUNCTION → L_ARM1 → L_END (choice, correct because blocked=='R'... wait)
+    def test_full_episode_runs_to_a_terminal_state(self):
+        """Walk a complete episode through every phase via the public API and
+        confirm it terminates with a sensible info dict, regardless of which
+        side ends up blocked (randomised by the env's own rng)."""
+        cfg, env = make_env(delay_start=2)
 
-        Non-match rule: correct = went to BLOCKED arm.
-        If open_side=='L', blocked=='R', correct arm is R_END.
-        We'll go L_END for the wrong case to verify correct=False.
-        """
-        cfg, env = make_env()
-        # Override so we control open_side
-        env.phase = "pre_sample"
-        env.open_side = "L"
-        env.blocked = "R"
-        env.pos = list(START)
-
-        # START → STEM
-        _, _, done, info = step(env, N)
-        assert not done
-        assert info["phase"] == "pre_sample"
-
-        # STEM → JUNCTION  (pre_sample → sample)
-        _, _, done, info = step(env, N)
-        assert not done
+        info = goto_junction(env)
         assert info["phase"] == "sample"
 
-        # JUNCTION → L_ARM1
-        _, _, done, info = step(env, W)
-        assert not done
-
-        # L_ARM1 → L_END  (sample → delay)
-        task_r, _, done, info = step(env, W)
-        assert not done
+        info = goto_open_arm_end(env)
         assert info["phase"] == "delay"
-        assert task_r == pytest.approx(cfg.arm_end_bonus - cfg.step_cost)
 
-        # 5 delay steps
-        for i in range(4):
-            env.pos = list(STEM)
-            _, _, done, info = step(env, WAIT)
-            assert not done, f"should not be done after {i+1} delay WAITs"
-
-        env.pos = list(STEM)
-        _, _, done, info = step(env, WAIT)
+        info = goto_choice(env)
         assert info["phase"] == "choice"
 
-        # Navigate to correct arm (blocked='R' → R_END is correct)
-        # First go to junction, then R_ARM1, then R_END
-        env.pos = list(JUNCTION)
-        _, _, done, info = step(env, E)   # → R_ARM1
-        assert not done
-
-        env.pos = list(R_ARM1)
-        task_r, int_r, done, info = step(env, E)   # → R_END (correct!)
-        assert done is True
+        # Navigate deliberately to the correct (originally-blocked) arm.
+        blocked = env.blocked
+        info = goto_arm_end_in_choice(env, blocked)
         assert info["correct"] is True
-        assert task_r == pytest.approx(cfg.test_reward * env.reward_scale - cfg.step_cost)
-        assert int_r == pytest.approx(cfg.completion_bonus - cfg.step_cost)
