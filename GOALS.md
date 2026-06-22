@@ -24,6 +24,14 @@ deepen (slow/maintenance) framing from Naudé et al. (2024) instead — see CLAU
 
 Stages 2–7 = planned/future work. Write Stage 1 as self-sufficient.
 
+**Planned tau/gain experiments (H_tau ladder):**
+
+| Experiment | Flag | Description | Status |
+|---|---|---|---|
+| E6 | `da_tau=True, tau_mode="uniform"` | DA-modulated tau, uniform init — does uniform shortening suffice? | planned — 50k smoke run pending |
+| E7 | `da_tau=True` (tau_mode="mixed") | DA-modulated tau, widen/deepen split — is asymmetry necessary? | planned — 50k smoke run pending |
+| E9 | `da_gain_mode="recurrent", da_tau=True` | Full Naudé: recurrent gain + dual tau — most faithful NMDA implementation | planned — 50k smoke run pending |
+
 ---
 
 ## Remaining deliverables
