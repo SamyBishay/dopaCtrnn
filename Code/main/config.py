@@ -144,6 +144,26 @@ class Config:
     # "allocentric": hab sees the same obs as GD, including x,y position.
     habit_obs: str = "position_free"
 
+    # ---- Tier-2 ladder experiment flags (E6, E7, E9) -------------------------
+
+    # E9: DA gain placement (Naudé NMDA excitability).
+    # "output" (default): gain on output readout r_out = f(DA) * tanh(h).
+    # "recurrent": W_eff = f(DA) * W — gain multiplies the recurrent contribution
+    #   inside dh, placing it literally inside the dynamics rather than on the output.
+    da_gain_mode: str = "output"
+
+    # E6/E7: tau initialisation mode.
+    # "mixed" (default): half fast (tau_fast), half slow (tau_slow).
+    # "uniform": all units initialised to tau_uniform — no structural timescale split.
+    tau_mode: str = "mixed"
+    tau_uniform: float = 10.0   # initial tau when tau_mode="uniform"
+
+    # E6/E7/E9: DA-modulated effective integration tau (Naudé widen/deepen via
+    # recurrent dynamics). When True, fast units shorten with DA (widen); slow units
+    # lengthen with DA (deepen). For tau_mode="uniform" all units shorten (widen only).
+    da_tau: bool = False
+    da_tau_gain: float = 0.5    # log-space shift magnitude per unit DA
+
     batch_size: int = 128  # parallel environments per training iteration (vectorised BLAS)
                            # 128 amortises Python/env overhead over a large [B x n] matmul:
                            # ~1.7x ep/s vs 32 on an 8-physical-core CPU (BLAS-3 bound).

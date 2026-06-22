@@ -6,8 +6,15 @@ Single-env rollouts use B=1 via reset_state(1).
 Goal-directed (mPFC/DMS): CTRNN, split into a fast (widen) half at the
 action/decision timescale and a slow (deepen) half at the maintenance
 timescale. Cortical DA controls strength and temporal stability of decision
-codes (Kutter et al.). Dopamine sets a MULTIPLICATIVE EXPRESSION GAIN:
-W_eff = f(DA) * W. Emits action logits, a scalar DA-request, and value.
+codes (Kutter et al.). Dopamine sets a MULTIPLICATIVE EXPRESSION GAIN with
+two experimental placement modes (cfg.da_gain_mode):
+  "output" (default): W_eff = f(DA) * W on the output readout r_out.
+  "recurrent": gain applied inside dh — f(DA) multiplies the recurrent
+    contribution directly, modelling Naudé et al. (2024) NMDA excitability.
+DA can additionally modulate effective integration tau (cfg.da_tau=True):
+  fast/widen units shorten with DA (faster decision dynamics);
+  slow/deepen units lengthen with DA (stronger maintenance — Naudé deepen).
+Emits action logits, a scalar DA-request, and value.
 
 Habitual (DLS): CTRNN, opponent Go/NoGo readouts (policy = Go - NoGo).
 
@@ -43,7 +50,11 @@ class GDNet(nn.Module):
         self.W_in  = nn.Parameter(torch.randn(n, cfg.obs_dim) * 0.1)
         self.W     = nn.Parameter(torch.randn(n, n) * (0.9 / n ** 0.5))
         self.b     = nn.Parameter(torch.zeros(n))
-        self.tau_p = nn.Parameter(_mixed_tau_init(n, cfg))
+        if getattr(cfg, "tau_mode", "mixed") == "uniform":
+            _tau_init = torch.full((n,), _inv_softplus(getattr(cfg, "tau_uniform", 10.0) - 1.0))
+        else:
+            _tau_init = _mixed_tau_init(n, cfg)
+        self.tau_p = nn.Parameter(_tau_init)
         self.W_out = nn.Parameter(torch.randn(a, n) * 0.1)
         self.b_out = nn.Parameter(torch.zeros(a))
         self.w_da  = nn.Parameter(torch.randn(n) * 0.1)
@@ -67,24 +78,67 @@ class GDNet(nn.Module):
 
     def step(self, x, h, da_tonic, lesion=False):
         """x: [B, obs_dim], h: [B, n], da_tonic: [B]  →  all [B, ...]."""
-        r  = torch.tanh(h)                                          # [B, n]
-        dh = -h + r @ self.W.T + x @ self.W_in.T + self.b         # [B, n]
-        h  = h + (self.cfg.dt / _tau(self.tau_p)) * dh
+        r  = torch.tanh(h)                                              # [B, n]
+
+        da_gain_mode = getattr(self.cfg, "da_gain_mode", "output")
+        da_tau_on    = getattr(self.cfg, "da_tau", False)
+
+        # When either recurrent-gain or tau-modulation is active we need DA
+        # signals computed from the PRE-UPDATE h (so that the step-t DA
+        # influences step-t dynamics without a one-step lag).
+        if da_gain_mode == "recurrent" or da_tau_on:
+            da_req_pre = torch.sigmoid((h * self.w_da).sum(-1) + self.b_da.squeeze())  # [B]
+            da_ton_pre = (1 - self.cfg.tonic_kappa) * da_tonic + self.cfg.tonic_kappa * da_req_pre
+            # Per-unit DA component for recurrent/tau paths (same split as the gain path below)
+            da_comp_pre = (self.fast_mask * da_req_pre.unsqueeze(-1)
+                           + (1 - self.fast_mask) * da_ton_pre.unsqueeze(-1))         # [B, n]
+
+        if da_gain_mode == "recurrent":
+            # W_eff = f(DA) * W  —  gain is INSIDE the recurrence (Naudé NMDA excitability).
+            rec_gain = self.gain_base + self.gain_da * da_comp_pre                    # [B, n]
+            dh = -h + rec_gain * (r @ self.W.T) + x @ self.W_in.T + self.b           # [B, n]
+        else:
+            dh = -h + r @ self.W.T + x @ self.W_in.T + self.b                        # [B, n]
+
+        if da_tau_on:
+            tau_mode = getattr(self.cfg, "tau_mode", "mixed")
+            da_tau_gain = getattr(self.cfg, "da_tau_gain", 0.5)
+            if tau_mode == "uniform":
+                # All units shorten with DA (widen only — no deepen group when tau is uniform).
+                da_tau_comp = da_req_pre.unsqueeze(-1).expand(-1, h.shape[-1])        # [B, n]
+                sign = torch.ones_like(self.fast_mask)                                # all +1
+            else:
+                # Mixed: fast units (sign=+1) shorten; slow units (sign=-1) lengthen.
+                da_tau_comp = da_comp_pre
+                sign = 2.0 * self.fast_mask - 1.0                                    # [n]
+            # Log-space shift keeps eff_tau > 0 and makes da_tau_gain a fractional change.
+            log_tau = torch.log(_tau(self.tau_p)) - da_tau_gain * sign * da_tau_comp  # [B, n]
+            eff_tau = log_tau.exp().clamp_min(1.0)
+            h = h + (self.cfg.dt / eff_tau) * dh
+        else:
+            h = h + (self.cfg.dt / _tau(self.tau_p)) * dh                            # original
+
         if lesion:
             h = torch.zeros_like(h)
-        da_request = torch.sigmoid((h * self.w_da).sum(-1) + self.b_da.squeeze())  # [B]
+
+        da_request = torch.sigmoid((h * self.w_da).sum(-1) + self.b_da.squeeze())    # [B]
         da_tonic   = (1 - self.cfg.tonic_kappa) * da_tonic + self.cfg.tonic_kappa * da_request
-        # Fast (widen) units track the phasic da_request; slow (deepen) units
-        # track the tonic low-pass — the timescale split, not a receptor label.
+        # Fast (widen) units track phasic da_request; slow (deepen) units track tonic.
         da_comp    = self.fast_mask * da_request.unsqueeze(-1) + (1 - self.fast_mask) * da_tonic.unsqueeze(-1)  # [B, n]
-        # E3 (da_components="gain_only"): suppress DA expression gain; use base gain only.
-        if getattr(self.cfg, "da_components", "both") == "gain_only":
-            gain = self.gain_base
+
+        if da_gain_mode == "recurrent":
+            # Gain already applied inside dh; output uses unscaled tanh.
+            r_out = torch.tanh(h)
         else:
-            gain  = self.gain_base + self.gain_da * da_comp
-        r_out = gain * torch.tanh(h)                               # [B, n]
-        pi    = r_out @ self.W_out.T + self.b_out                  # [B, n_actions]
-        value = (h * self.w_v).sum(-1) + self.b_v.squeeze()        # [B]
+            # E3 (da_components="gain_only"): suppress DA expression gain; use base gain only.
+            if getattr(self.cfg, "da_components", "both") == "gain_only":
+                gain = self.gain_base
+            else:
+                gain = self.gain_base + self.gain_da * da_comp
+            r_out = gain * torch.tanh(h)                                              # [B, n]
+
+        pi    = r_out @ self.W_out.T + self.b_out                                    # [B, n_actions]
+        value = (h * self.w_v).sum(-1) + self.b_v.squeeze()                          # [B]
         return pi, da_request, value, h, da_tonic
 
     def arbitration(self, h):
