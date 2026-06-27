@@ -39,7 +39,7 @@ Compiled after Opus-level scrutiny of results, code, and methodology. Each entry
 
 **Important caveat:** noise zeroed during eval does NOT fix the binary-accuracy problem from F1. Since noise is off during eval, evaluation with frozen weights remains deterministic (given the weights), so accuracy is still a step function. Noise improves training dynamics but doesn't make the eval curves graded. F1 and F2 still need their own fixes (sampled actions or rolling training accuracy) even after noise is added.
 
----
+
 
 ## F3 — H5 accuracy "recovery" is a mathematical identity, not reactivation
 
@@ -351,6 +351,35 @@ Papers already in the vault are marked **[IN VAULT]**. All others need `/add-pap
 
 ---
 
+## F14 — Choice phase signal resets to full amplitude instead of decayed residual
+
+**Problem:** The supervisor's phase signal decays by ×0.1 every delay step, and at choice onset she sets `sig_choice = 1/(w-1) × 0.1 ≈ 0.0125` — a small residual consistent with one additional decay step. Our env resets `_sig` to zero then sets `_sig[2] = cfg.sig_val = 0.25` — a full-amplitude, hard reset. The choice cue the network receives is ~20× stronger in our code than in hers.
+
+The sample signal magnitudes also differ: we use `sig_val = 0.25` (a fixed constant); she uses `1/(w-1) ≈ 0.125` (normalised to maze width so the signal scales appropriately as the grid grows). The delay decay rate (`×0.1` per step) is identical.
+
+**Consequence:** our network can rely on a strong explicit cue at choice onset rather than its recurrent hidden state to determine that a choice is required. The working-memory demand comes from remembering *which* arm was the sample — that information is absent from all signals at choice time in both implementations — but the timing/phase detection is made 20× easier in ours. This also means that if the delay is long enough that the sample signal has fully decayed to near zero before choice onset, the choice cue in the supervisor's code is still naturally small (matching a network that has been waiting in silence), whereas ours is a sudden strong jolt.
+
+**Fix:** In `environment.py`, change the choice-onset signal from a full reset to a value consistent with the supervisor:
+
+```python
+# Current (wrong):
+self._sig[to_choice] = 0.0
+self._sig[to_choice, 2] = self.cfg.sig_val   # 0.25 — too strong
+
+# Fix: match supervisor's 1/(w-1) × 0.1 convention
+choice_sig = (1.0 / (self.w - 1)) * 0.1
+self._sig[to_choice] = 0.0
+self._sig[to_choice, 2] = choice_sig
+```
+
+Also align the sample signal magnitude: set `_sig[open_L, 0] = 1.0 / (self.w - 1)` and `_sig[open_R, 1] = 1.0 / (self.w - 1)` instead of `cfg.sig_val`. Remove `sig_val` from `config.py` or repurpose it as a multiplier after the normalisation. For `len_edge=7`, `w=9`, `1/(w-1) = 0.125` — close to the current 0.25 but now tied to maze geometry.
+
+**Your opinion:**
+
+**Claude's take:**
+
+---
+
 ## F13 — Design comparison: vectorised parallelism and input weight scale vs supervisor's code
 
 **Context:** Comparison between our architecture and the supervisor's `tunl_a2c_two_area.py`, relevant to the mémoire Method section and to interpreting any differences in training dynamics.
@@ -368,6 +397,46 @@ Our `batch_size=128` vectorised training is ~128× faster per wall-clock second 
 3. **Averaged signals wash out per-trial effects.** `evaluate_vec` returns the mean `da_request` across all B lanes. A genuine but noisy reactivation signal on a subset of trials gets averaged with lanes where it didn't fire. This reduces the signal-to-noise on H5 and makes marginal results harder to interpret.
 
 4. **Supervisor's demo replay buffer is architecturally incompatible.** She maintains a `deque` of the best 500 PFC episodes and replays them for DLS at 30% of updates. Mixing live-batch vectorised data with selectively replayed episodes would break the batched forward pass structure. This replay mechanism is one reason her DLS imitation learns more stably than a naive CE loss would.
+
+---
+
+---
+
+## F15 — No experiment tests DA-modulated excitability
+
+**Problem:** The current DA implementation covers two roles: *expression* (readout gain in E3, recurrent gain in E9) and, in F11, *plasticity* (gradient scaling during learning). Neither tests DA-modulated *excitability* in Naudé's sense. In MAGNet, DA instantaneously potentiates NMDA currents across the whole recurrent network, producing a uniform increase in the strength of all excitatory synaptic currents — independently of whether those synapses carry plasticity-built Hebbian structure. The functional consequence is not "amplify learned weights" (that is recurrent gain, E9) but "lower the firing threshold uniformly so that any pre-built attractor becomes accessible from a distance." DA-plasticity creates latent attractors that only converge locally; DA-excitability reveals them by widening their basins globally. The current model has no experiment that tests this widening mechanism independently.
+
+**Claude's take:**
+
+The simplest implementation that captures the excitability intuition without NMDA biophysics: **inject a DA-dependent additive bias into the GD recurrent dynamics before the nonlinearity.** In `GDNet.step()`:
+
+```python
+exc_bias = cfg.da_exc_base + cfg.da_exc_gain * da_tonic
+h_new = (1 - dt/tau) * h + (dt/tau) * tanh(W_rec @ h + W_in @ x + exc_bias)
+```
+
+When `da_tonic` is high, the bias uniformly pushes all neurons toward the tanh saturation region — they are closer to their committed firing states. Decision attractors become deeper and more accessible from distant initial conditions (directly corresponding to Naudé's "global convergence from distal positions"). When DA is low, the bias vanishes, neurons return to baseline responsiveness, and attractors become shallower. Two config parameters (`da_exc_base`, `da_exc_gain`), one added line in `GDNet.step()`.
+
+**Why this is different from what's already tested:**
+- **Readout gain** (`r_out = gain·tanh(h)`): amplifies the output *after* dynamics settle — excitability acts *inside* the dynamics, before the nonlinearity, shaping which state the network converges to.
+- **Recurrent gain** (`W_eff = da·W`, E9): scales each connection in proportion to its weight — a large weight gets scaled more than a small one. The bias adds the same value to every neuron regardless of connection strength. Naudé's NMDA potentiation is this second kind: a conductance change that is uniform across synapses, not weighted by synaptic magnitude.
+- **Tau modulation** (E6/E7): changes integration *speed* — how fast the network moves through state space. Excitability changes activation *threshold* — how easily any given state is reached. Both matter; they are orthogonal degrees of freedom (Naudé implements both simultaneously; E9 tests them together but there's no experiment isolating the threshold mechanism alone).
+
+**What this would show:** If DA-modulated excitability is the right account, goal-encoding attractors should measurably deepen when DA is high: (1) the participation ratio (PR) from the existing PCA pipeline should decrease during high-DA phases (dynamics become lower-dimensional, more committed); (2) delay-period decoder accuracy should stay higher in longer delays (better WM maintenance under excitability boost); (3) fixed-point stability radius should increase. All three are already computed by `analysis.py` — no new analysis code needed, just a new config flag and the one line in `GDNet.step()`.
+
+**Why simpler than Naudé:** MAGNet requires tracking NMDA conductance states with slow kinetics and separate D1R gating. The bias version achieves the same functional outcome — "neurons are easier to activate when DA is high" — with a scalar addition and two config parameters, comparable in scope to F11's gradient-scaling approach.
+
+---
+
+**Combined experiment — DA-excitability + DA-plasticity + dual timescales:**
+
+F11 (plasticity) and F15 (excitability) address two separable DA roles that Naudé shows are synergistic: neither alone is sufficient for directed, globally accessible goal-seeking. Once individually validated, the natural next step is to run them together with the widen/deepen tau asymmetry from E7. This would be the most faithful implementation of Naudé's complete mechanism in a CTRNN:
+
+- **Excitability** (fast, within-trial): DA bias lowers activation threshold → widens attractor basins during high-DA states → goal-encoding accessible from distal initial conditions
+- **Plasticity** (slow, across-session): DA scales gradients → GD system consolidates representations faster during high-DA training phases → fewer episodes to reach criterion
+- **Timescale split** (widen/deepen tau from E7): fast neurons track decision attractors with short tau; slow neurons maintain WM state with long tau
+
+All three are additive to the existing architecture: one line in `GDNet.step()` for excitability, four lines in `train.py` for plasticity, the existing `da_tau=True, tau_mode="mixed"` flag for timescales. No structural changes required. The combined experiment tests whether the three mechanisms are synergistic — does the GD system consolidate faster (plasticity) AND maintain deeper WM attractors across long delays (excitability + deepen tau) AND hand off more cleanly (all three together) relative to each mechanism alone?
 
 ---
 

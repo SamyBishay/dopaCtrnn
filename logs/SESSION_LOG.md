@@ -237,3 +237,20 @@ Commit: –
 - Compared NN init: her PFC uses Normal(0,1) input weights (input dominates recurrent 6×); our GDNet uses Normal(0,0.1) (recurrent dominates input ~13×) — memory-dominated by design, slower early learning, appropriate for WM task
 - Explained why supervisor needs explicit warmup/imitation/handover phases: her DLS imitates PFC (needs a trained teacher); our Hab learns independently via value-free APE with no teacher dependency
 - Added F13 to fixes.md documenting parallelism disadvantages and input weight scale analysis
+
+## 2026-06-28 — Environment comparison + F14
+Commit: – (fixes.md edited, not yet committed)
+
+- Compared env implementations in detail: both use same 6D obs format; supervisor has N_ENVS=1 (not truly vectorised); key diffs are arm-blocking by wall mutation vs logical mask, and random vs fixed start position
+- Explained why seeds exist: the only randomness is a binary L/R coin flip per trial — seeds give reproducibility for eval comparability, not structural complexity
+- Identified `_sig` decay mismatch (F14): our choice signal resets to full amplitude (sig_val=0.25) vs supervisor's decayed residual (1/(w-1)×0.1 ≈ 0.0125) — 20× stronger, reducing working-memory demand at choice onset
+- Added F14 to fixes.md with code fix (environment.py lines 279–280) and sample signal normalisation
+
+## 2026-06-28 — fixes_summary restructure + F11–F15
+Commit: –
+
+- Rewrote fixes_summary.md as a holistic "what to do now" document (code changes, experiment DAG, cluster setup, writing notes) — no longer a paraphrase of fixes.md
+- Reorganised experiment ladder into a DAG: removed E5/E6/E8, renamed E9 to "recurrent gain + dual tau", added E10 (recurrent gain only), E11 (+ DA plasticity via LR scaling), E12 (DA excitability), E13 (combined)
+- Decided fixed delay throughout (confirmed from Villet fixed 90s), drop curriculum; target batch_size=8 on Grid5000 for 3 seeds in 3 hours
+- Added F14 fix (choice/sample signal normalised to maze width, match decay convention) and F15 (DA excitability: additive bias in GDNet dynamics)
+- Clarified Adam + LR scaling is correct for DA-modulated plasticity (gradient scaling cancelled by Adam normalisation)
