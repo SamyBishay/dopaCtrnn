@@ -48,11 +48,6 @@ Stages 2–7 = planned/future work. Write Stage 1 as self-sufficient.
 
 ---
 
-| H5 reactivation (falsification) | accuracy → 1.00 ✓ ; DA-request rise marginal — NOT a clean confirmation. Data cannot yet distinguish genuine dormant-trace reactivation from a control-loop artifact (no gate-clamp control run). Write up as an honest partial result in Discussion; name the gate-clamp control as the first Future Research item. |
-
-(This replaces the parenthetical "(DA-request rise marginal — report honestly)" with an
-explicit statement of what the ambiguity is and what would resolve it, so whoever
-writes Discussion doesn't have to reconstruct that reasoning under deadline pressure.)
 
 
 

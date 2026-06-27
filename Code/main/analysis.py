@@ -70,7 +70,7 @@ def evaluate(model, env, cfg, n, fixed_delay: int = -1, **kw):
 
 
 def evaluate_vec(model, env, cfg, n, force_w=None, lesion=None, mot=1.0,
-                 fixed_delay: int = -1):
+                 fixed_delay: int = -1, seed=None):
     """Vectorised evaluation: one TMazeVecEnv steps B trials at once, ceil(n/B)
     batches. All B environments advance in a single C-level NumPy step() — no
     per-env Python loop — and the forward pass is a single [B x n] matmul.
@@ -78,10 +78,13 @@ def evaluate_vec(model, env, cfg, n, force_w=None, lesion=None, mot=1.0,
     fixed_delay: if >= 0, pin the eval delay to this value regardless of the
     current curriculum position (for Villet-comparison evals at cfg.fixed_eval_delay).
     The env's current_delay is restored after the call.
+    seed: RNG seed for the eval environment. Pass total_episodes from the training
+    loop so each eval window sees different trials; within one window comb/hab/gd
+    all use the same seed (comparable). None → truly random (for post-hoc analysis).
     """
     from environment import TMazeVecEnv
     B = min(cfg.batch_size, n)
-    rng = np.random.default_rng(0)
+    rng = np.random.default_rng(seed)
     venv = TMazeVecEnv(cfg, rng, batch_size=B)
     saved_delay = env.current_delay
     venv.current_delay = fixed_delay if fixed_delay >= 0 else env.current_delay

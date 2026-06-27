@@ -180,3 +180,41 @@ Commit: 4eaf8fc1b45e5b1a0cd8ced5dd877fc6442709f9
 - Subagent (sonnet): repaired the stale test suite (126 failed/8 errors -> 554 passed, 0 failed) and added tests/test_ladder_flags.py covering both arms of every ladder flag (Step 7's previously-unmet acceptance criterion).
 - Subagent (sonnet): built Code/visualisations/build_batch_viz.py + batch_visualiser.html + aggregate_arm.py -- per-arm cross-seed aggregation, arm-vs-arm H2/H3/H5 comparison, chance-guard banner, drill-down into the existing per-seed viewer; verified by rendering real batches in headless Firefox (caught and fixed a NaN-in-JSON bug along the way).
 - Committed and pushed to origin/allo-ego (a27e04b..4eaf8fc). Still NOT done: no arm has actually been trained to >=5 seeds at full scale yet (E0 itself is still 1 seed) -- the infrastructure is ready, the real ladder runs are not.
+
+## 2026-06-22 — E6/E7/E9 smoke runs + Naudé tau/gain implementation
+Commit: 30da65bffa6d6ae35be21998b72ba606f356f0ba
+
+- Added E6 (uniform tau + da_tau), E7 (dual widen/deepen tau), E9 (recurrent gain + dual tau per Naudé 2024); corrected existing gain to run inside recurrence for E9, output-only for E3
+- Ran 50k smoke runs (1 seed each) for E6/E7/E9 via nohup with DOPA_NUM_THREADS=5; all converged to comb=1.00 with H5 DA-rise=+0.000 (FAIL) across all three — same as Stage 1
+- Discovered AMD 780M iGPU available via ROCm venv (rocm7.12/bin/python3 --device cuda); 94× faster than CPU for model matmul size; scipy/sklearn installed in ROCm venv
+- Built batch visualiser HTMLs from completed runs and opened Firefox with E6/E7/E9 pages; training curves (fig1) included in final rebuild
+- Updated CLAUDE.md (H_tau hypothesis, E6/E7/E9 in scope, gain-mode correction), GOALS.md, naude_dopamine_2024.md, and memory index
+
+## 2026-06-27 — Protocol reframing + fixes.md F10
+Commit: –
+
+- Clarified what E2 expression vs scheduled arms actually test (gate mechanism efficiency, not the core scientific claims)
+- Identified the three core claims: handoff occurs, GD is the learning area, hab is reward-insensitive
+- Diagnosed missing ablation: no run freezes hab during training to prove GD learns independently
+- Added F10 to current/fixes.md documenting the protocol/question mismatch and the three fixes needed (drop expression/scheduled, add --freeze-hab, reframe E4)
+
+## 2026-06-27 — CLAUDE.md file map update
+Commit: –
+
+- Updated §1 of CLAUDE.md to reflect current repo layout: new e0/e1/e2 experiment files, batch_runner.py, corrected visualisations paths, added archive/ and current/fixes.md
+- Removed stale references (make_viz.py, old results path, PROJECT_STATUS_AND_PLAN at root)
+
+## 2026-06-27 — fixes.md methodology audit + code fixes (F1/F2/F4/early-stop)
+Commit: –
+
+- Created current/fixes.md: structured audit of F1–F11 problems (binary accuracy, fixed eval seed, H5 argmax identity, DA penalty over-determination, etc.) with user opinions and Claude takes recorded per issue
+- Rewrote results_index.md §3.5 H5 to state the argmax identity plainly and mark it "Uninformative (design limitation)" rather than a negative result
+- Appended comprehensive papers section to fixes.md: ~20 papers across 7 groups (RPE foundation, tonic DA/habit balance, DA kinetics, surprise-gating, wave dynamics, plasticity, in-vivo correlates)
+- Code fixes applied: rolling accuracy tracked per-batch in train.py (fixes F1), variable eval seed keyed to episode count in evaluate_vec (fixes F2), da_pen now targets (gain_da * da_request)^2 not da_request^2 (fixes F4), early stopping at 99
+## 2026-06-27 — fixes.md audit + code fixes (F1/F2/F4/early-stop)
+Commit: -
+
+- Created current/fixes.md: structured audit of F1-F11 (binary accuracy, fixed eval seed, H5 argmax identity, DA penalty over-determination, etc.) with user opinions and Claude takes per issue
+- Rewrote results_index.md section 3.5 H5 to state the argmax identity plainly; reclassified as "Uninformative (design limitation)"
+- Appended ~20 papers across 7 groups to fixes.md references (RPE foundation, tonic DA/habit balance, DA kinetics, surprise-gating, wave dynamics, plasticity, in-vivo correlates)
+- Code: rolling accuracy tracked per-batch in train.py (F1); variable eval seed in evaluate_vec keyed to episode count (F2); da_pen targets (gain_da * da_request)^2 not da_request^2 (F4); early stop at 99% rolling acc over last 20k episodes; 200k episode cap

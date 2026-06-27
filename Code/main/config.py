@@ -56,8 +56,8 @@ class Config:
     sched_w_low: float  = 0.1         # E2: w_gd ramp value post-handoff (habit-led).
 
     # ---- training (train.py) ----
-    episodes: int   = 512000          # raised from 32k: longer curriculum needs more episodes
-                                      # B=128 → 4000 gradient steps; ~same wall-time per step
+    episodes: int   = 200_000         # cap; early_stop_acc is the primary stopping criterion
+                                      # B=128 → ~1563 gradient steps
     gamma: float    = 0.99            # supervisor GAMMA=0.99; 0.95 discounted too heavily over long delays
     gae_lambda: float = 0.95          # GAE(λ) for goal-directed advantage. 1.0 → plain
                                       # Monte-Carlo returns (original behaviour); <1 lowers
@@ -69,7 +69,9 @@ class Config:
     lr_hab: float   = 1e-3            # supervisor LR_DLS=1e-3; habitual benefits from faster imitation
     entropy_beta: float = 0.05        # higher than default to prevent early policy collapse
     value_coef: float   = 0.5         # supervisor VALUE_COEFF=0.5; matches
-    da_cost_lambda: float = 0.02      # penalty on da_request² → minimise its own request
+    da_cost_lambda: float = 0.02      # penalty on (gain_da * da_request)² → penalise gain effect, not signal
+    rolling_window: int  = 20_000    # episodes in rolling accuracy window (10% of max)
+    early_stop_acc: float = 0.99     # stop when rolling accuracy reaches this threshold
     da_warmup: int  = 64000           # episodes with NO DA penalty; scaled to match new episode count
     da_ramp: int    = 64000           # episodes to linearly ramp penalty to full
     grad_clip: float = 0.5            # supervisor GRAD_CLIP=0.5; tighter clipping stabilises RNN

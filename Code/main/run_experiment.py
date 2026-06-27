@@ -168,17 +168,24 @@ def main():
         model.load_state_dict(ckpt_maint)
         results["fixed_points"] = A.fixed_points(model, eval_env, cfg)
 
-    with open(os.path.join(outdir, "results.json"), "w") as f:
+    tmp = os.path.join(outdir, "results.json.tmp")
+    with open(tmp, "w") as f:
         json.dump(results, f, indent=2, default=float)
+    os.replace(tmp, os.path.join(outdir, "results.json"))
+    results.pop("logs", None)
+    import gc; gc.collect()
 
     # ---- trajectories for the visualizer ----
     model.load_state_dict(ckpt_maint)
     eval_trajs = A.eval_trajectories(model, eval_env, cfg, cfg.traj_eval_trials,
                                      greedy=not args.untrained)
-    with open(os.path.join(outdir, "trajectories.json"), "w") as f:
+    tmp = os.path.join(outdir, "trajectories.json.tmp")
+    with open(tmp, "w") as f:
         json.dump({"seed": args.seed, "untrained": args.untrained,
                    "maze": maze_layout(cfg), "train": train_trajs, "eval": eval_trajs},
                   f, default=float)
+    os.replace(tmp, os.path.join(outdir, "trajectories.json"))
+    del train_trajs, eval_trajs; gc.collect()
 
     # ---- per-seed figures ----
     if logs is not None:

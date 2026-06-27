@@ -2,16 +2,8 @@
 
 You are the research engineer AND writing collaborator for this project. Read this fully
 at the start of every session. **This file supersedes the experiment-running version of
-CLAUDE.md** — the project has moved from "build the model" to "write the mémoire," and
-the rules below reflect that. When a rule here conflicts with a habit, follow the rule.
+CLAUDE.md**
 
-**Deadline reality (the single most important fact):** mémoire + stage report due
-**22 June**, soutenance **29 June**. **Update:** the user has decided to resume running
-experiments despite the tight timeline — Stages 2–7 (the fuller necessity/sufficiency
-ladder — scalar split, scheduled-vs-expression gate, ego/allo, value-coupled habit,
-rank sweep) are back in scope when the user asks for them. Keep the writing deliverables
-in §4 visible regardless — experiments should not silently consume all remaining time
-before the mémoire is done.
 
 **This repo IS the Obsidian vault.** Same rules as before:
 - Cross-references are **wikilinks** `[[citekey]]`, not relative links.
@@ -47,23 +39,38 @@ Papers/
 Mémoire/
   memoire_introduction_section_draft.md
   memoire_method_section_draft.md
+  memoire_intro_methods_future.md    # combined intro/methods/future working draft
   [results / discussion / conclusion / abstract — TO WRITE, see §4]
   Guide_de_redaction_du_memoire_Master_1_2_SC.md
 Code/
   main/                               # Stage-1 implementation — experiments back in scope
     config.py, environment.py, model.py, train.py, analysis.py, figures.py
-    run_experiment.py, aggregate.py
-    results/seed<N>/{results.json, trajectories.json, ckpt_*.pt, fig*.png}
-  visualisations/make_viz.py          # builds maze_viz.html
+    run_experiment.py, aggregate.py, batch_runner.py
+    e0_single_area_a2c.py            # E0 single-area A2C baseline
+    e1_two_area_no_da.py             # E1 two-area, same obs, no DA
+    e2_two_area_allo_ego.py          # E2 ego/allo split, no DA
+    run_seed.sh, setup_env.sh, submit_oar.sh
+    results/<exp>/<arm>/<ts>_<commit>/seed<N>/{results.json, …}
+  visualisations/
+    build_viz.py                     # builds visualiser.html (single run)
+    build_batch_viz.py               # builds batch_visualiser.html (multi-arm sweep)
+    visualiser.html, batch_visualiser.html
+    aggregate_arm.py
   supervisor's code/                 # reference only, do not edit
 current/                              # scratch / gap analysis
+  fixes.md                           # post-scrutiny issues F1–F10 (problem/opinion/take)
+  results_index.md                   # index of all experiment result dirs
+  memoire_intro_methods_future.md    # working scratch copy
+  architectureGraph.md, diffCodeMethods.md, memoire-gaps.md, implications-summary.md
+archive/                              # superseded docs — read-only, do not edit
+  PROJECT_STATUS_AND_PLAN.md        # old timeline/decision log
+  Project overview … handoff.md     # source of truth for model design decisions
 logs/SESSION_LOG.md                  # append-only, written by /session-log
 rapport/                              # internship report guidelines
 soutenance/                           # defence slide guidelines
 GOALS.md                             # one-page status — READ FIRST every session
-PROJECT_STATUS_AND_PLAN.md           # timeline, scope, decision log
+IMPLEMENTATION_ROADMAP.md            # experiment ladder and implementation plan
 PROJECT_INSTRUCTIONS.md              # supervisor/format requirements
-Project overview … handoff.md        # source of truth for the model's design decisions
 ```
 
 **Session start checklist (do this before anything else):** read `GOALS.md` in full
@@ -244,20 +251,3 @@ During the writing phase, also note **which section was completed** and **what's
 TODO(verify)**, so the next session doesn't have to re-discover it.
 
 ---
-
-## 10. What NOT to do (the scope-creep guardrails)
-
-- Stages 2–7 (the scalar split, scheduled-vs-expression-gate, ego/allo,
-  value-coupled-habit, rank-sweep experiments) are now in scope when the user asks —
-  see the deadline-reality update at the top of this file. Still don't launch one of
-  these on your own initiative; the user picks which experiment to run.
-- E6 (uniform-tau DA modulation), E7 (widen/deepen DA tau), E9 (full Naudé: recurrent
-  gain + dual tau) — in scope; don't launch without the user picking which to run.
-- Do not modify `Code/main/` to chase a cleaner H5 result *for the existing Stage-1
-  write-up* — that result is reported as-is (§5). Modifying the code to run a genuinely
-  new experiment the user has asked for is fine.
-- Do not add new architectural citations (OpAL opponency, striatal agency-DA, etc.)
-  beyond what's already in the drafts unless a specific sentence needs one — adding
-  citations for completeness, this week, is not a good use of remaining time.
-- Do not let a literature-verification detour block a writing session. Mark `TODO(verify)`
-  and keep moving; sweep the TODOs in one batch near the end, not continuously.

@@ -11,6 +11,7 @@ over the summed losses from all B completed episodes.
 import copy
 import math
 import os
+from collections import deque
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -100,7 +101,9 @@ class RunningNorm:
 
 def _train_batch(model, venv, cfg, opt_gd, opt_hab, da_lambda,
                  ret_norm=None, ape_scale=1.0):
-    """One vectorised training iteration over B parallel episodes (single venv)."""
+    """One vectorised training iteration over B parallel episodes (single venv).
+    Returns (loss_gd, loss_hab, n_correct) where n_correct is the number of
+    episodes in this batch that reached the correct goal arm."""
     B   = venv.B
     dev = cfg.device
     model.reset_state(B)
@@ -112,6 +115,7 @@ def _train_batch(model, venv, cfg, opt_gd, opt_hab, da_lambda,
     all_task_r, all_int_r, all_valid = [], [], []
 
     active = np.ones(B, dtype=bool)
+    n_correct = 0
 
     for _ in range(cfg.max_episode_steps):
         obs_t      = _t(venv.obs(),     dev)      # [B, obs_dim]
@@ -124,7 +128,10 @@ def _train_batch(model, venv, cfg, opt_gd, opt_hab, da_lambda,
         all_val.append(out["value"]);   all_acts.append(acts)
 
         valid_np = active.copy()                  # steps where env was active
-        tr, ir, done, _ = venv.step(acts.cpu().numpy())
+        tr, ir, done, info = venv.step(acts.cpu().numpy())
+        newly_done = valid_np & done
+        if newly_done.any():
+            n_correct += int(info["correct"][newly_done].sum())
         # rewards are zero for already-done envs by construction in venv.step
         all_task_r.append(torch.from_numpy(tr.astype(np.float32)))
         all_int_r.append(torch.from_numpy(ir.astype(np.float32)))
@@ -143,7 +150,7 @@ def _train_batch(model, venv, cfg, opt_gd, opt_hab, da_lambda,
     acts_t  = torch.stack(all_acts)      # [T, B]
     task_t  = torch.stack(all_task_r).to(dev)
     int_t   = torch.stack(all_int_r).to(dev)
-    valid_t = torch.stack(all_valid)     # [T, B] bool
+    valid_t = torch.stack(all_valid).to(dev)   # [T, B] bool
 
     valid_f = valid_t.float()                            # [T, B]
     total_valid = valid_f.sum().clamp_min(1.0)
@@ -179,7 +186,11 @@ def _train_batch(model, venv, cfg, opt_gd, opt_hab, da_lambda,
     policy_l  = -((adv_n.detach() * logps) * valid_f).sum()
     critic_l  = cfg.value_coef * (((returns_n - val_t) ** 2) * valid_f).sum()
     entropy_l = -cfg.entropy_beta * (ents * valid_f).sum()
-    da_pen    = da_lambda * ((da_t ** 2) * valid_f).sum()
+    # Penalise the gain *effect* (gain_da * da_request)² not da_request² directly.
+    # This lets da_request stay non-zero for gating/reactivation while still
+    # discouraging unnecessarily large expression-gain excursions.
+    gain_da_sq = model.gd.gain_da.detach() ** 2
+    da_pen    = da_lambda * (gain_da_sq * (da_t ** 2) * valid_f).sum()
     total_gd  = expr_gate * (policy_l + entropy_l) + critic_l + da_pen
 
     # ===== habitual: value-free APE + intrinsic efficiency, vectorised =====
@@ -214,7 +225,7 @@ def _train_batch(model, venv, cfg, opt_gd, opt_hab, da_lambda,
     torch.nn.utils.clip_grad_norm_(model.gd_params(), cfg.grad_clip); opt_gd.step()
     opt_hab.zero_grad(); total_hab.backward()
     torch.nn.utils.clip_grad_norm_(model.hab_params(), cfg.grad_clip); opt_hab.step()
-    return float(total_gd.detach()), float(total_hab.detach())
+    return float(total_gd.detach()), float(total_hab.detach()), n_correct
 
 
 def _record_episode(model, env, cfg):
@@ -254,7 +265,8 @@ def train(cfg, verbose=True):
 
     logs = {k: [] for k in ("episode", "combined_acc", "hab_solo_acc",
                              "gd_solo_acc", "w_gd", "da_recruit", "delay",
-                             "fixed_delay_acc")}
+                             "fixed_delay_acc", "rolling_acc")}
+    rolling_buf = deque(maxlen=cfg.rolling_window)
     ckpt_learn = ckpt_maint = first_state = None
     train_trajs = []
     delay_advance_count = 0
@@ -278,6 +290,8 @@ def train(cfg, verbose=True):
         total_episodes      = st["total_episodes"]
         start_it            = st["iteration"] + 1
         logs                = st["logs"]
+        if "rolling_acc" not in logs:          # old checkpoint compatibility
+            logs["rolling_acc"] = [None] * len(logs["episode"])
         delay_advance_count = st["delay_advance_count"]
         ret_norm.buf.extend(st.get("ret_norm_buf", []))
         ckpt_learn  = st.get("ckpt_learn"); ckpt_maint = st.get("ckpt_maint")
@@ -317,8 +331,18 @@ def train(cfg, verbose=True):
         if cfg.gate_mode == "scheduled":
             model.scheduled_w.fill_(scheduled_w_value(ep, cfg))
 
-        _train_batch(model, venv, cfg, opt_gd, opt_hab, da_lambda,
-                     ret_norm=ret_norm, ape_scale=ape_scale)
+        _, _, n_correct = _train_batch(model, venv, cfg, opt_gd, opt_hab, da_lambda,
+                                       ret_norm=ret_norm, ape_scale=ape_scale)
+        rolling_buf.extend([1] * n_correct + [0] * (B - n_correct))
+
+        # Early stopping: 99% rolling accuracy over the last rolling_window episodes.
+        if (len(rolling_buf) >= cfg.rolling_window
+                and sum(rolling_buf) / len(rolling_buf) >= cfg.early_stop_acc):
+            if verbose:
+                racc = sum(rolling_buf) / len(rolling_buf)
+                print(f"  -> early stop at ep {total_episodes}: "
+                      f"rolling acc {racc:.3f} >= {cfg.early_stop_acc}", flush=True)
+            break
 
         # Trajectory logging (use eval_env for cleanliness)
         if (cfg.traj_log_every > 0
@@ -329,10 +353,14 @@ def train(cfg, verbose=True):
 
         # Periodic evaluation
         if total_episodes % cfg.eval_every < B or it == iterations - 1:
-            comb = evaluate_vec(model, eval_env, cfg, cfg.eval_trials)
-            hab  = evaluate_vec(model, eval_env, cfg, cfg.eval_trials, force_w=0.0)
-            gd   = evaluate_vec(model, eval_env, cfg, cfg.eval_trials, force_w=1.0)
+            # Same seed for comb/hab/gd so they see identical trials (comparable).
+            # Keyed to total_episodes so each eval window sees a different draw.
+            ev_seed = total_episodes
+            comb = evaluate_vec(model, eval_env, cfg, cfg.eval_trials, seed=ev_seed)
+            hab  = evaluate_vec(model, eval_env, cfg, cfg.eval_trials, force_w=0.0, seed=ev_seed)
+            gd   = evaluate_vec(model, eval_env, cfg, cfg.eval_trials, force_w=1.0, seed=ev_seed)
             comb_acc = comb["acc"]; hab_solo_acc = hab["acc"]   # for APE-decay
+            r_acc = (sum(rolling_buf) / len(rolling_buf)) if rolling_buf else 0.0
             logs["episode"].append(total_episodes)
             logs["combined_acc"].append(comb["acc"])
             logs["hab_solo_acc"].append(hab["acc"])
@@ -340,13 +368,14 @@ def train(cfg, verbose=True):
             logs["w_gd"].append(comb["w_mean"])
             logs["da_recruit"].append(comb["da_mean"])
             logs["delay"].append(venv.current_delay)
+            logs["rolling_acc"].append(r_acc)
 
             # Fixed-delay eval (Villet comparison): only meaningful once curriculum
             # has reached ceiling — below that, the delay itself is still changing.
             at_ceiling = venv.current_delay >= cfg.delay_max
             if at_ceiling:
                 fd = evaluate_vec(model, eval_env, cfg, cfg.eval_trials,
-                                  fixed_delay=cfg.fixed_eval_delay)
+                                  fixed_delay=cfg.fixed_eval_delay, seed=ev_seed)
                 logs["fixed_delay_acc"].append(fd["acc"])
             else:
                 logs["fixed_delay_acc"].append(None)
@@ -398,9 +427,10 @@ def train(cfg, verbose=True):
 
             if verbose:
                 fd_str = f" fixedDA {logs['fixed_delay_acc'][-1]:.2f}" if at_ceiling else ""
-                print(f"ep {total_episodes:6d} | comb {comb['acc']:.2f} habSolo {hab['acc']:.2f} "
-                      f"gdSolo {gd['acc']:.2f} | w_GD {comb['w_mean']:.2f} "
-                      f"DA {comb['da_mean']:.2f} delay {venv.current_delay}{fd_str}", flush=True)
+                print(f"ep {total_episodes:6d} | comb {comb['acc']:.2f} roll {r_acc:.2f} "
+                      f"habSolo {hab['acc']:.2f} gdSolo {gd['acc']:.2f} | "
+                      f"w_GD {comb['w_mean']:.2f} DA {comb['da_mean']:.2f} "
+                      f"delay {venv.current_delay}{fd_str}", flush=True)
 
         # ---- resumable checkpoint (atomic write) ----
         if cfg.ckpt_every > 0 and cfg.ckpt_path and total_episodes % cfg.ckpt_every < B:
