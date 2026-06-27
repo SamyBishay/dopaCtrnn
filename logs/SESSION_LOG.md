@@ -227,3 +227,13 @@ Commit: –
 - F1 agreed decisions: drop distance metric, keep rolling accuracy for curves, change APE teacher to GD's own output (soft directions / one-hot WAIT), full delay redesign
 - Delay redesign: replace teleport+freeze with PUSHBACK phase (env overrides movement back to START, delay counter starts at pushback onset), CONFINED sub-state at START (obs[2]=1), CHOICE when delay_idx >= len_delay (obs[2]=0 + sig_choice)
 - Deep-dive into supervisor env: confirmed obs[2] always 0 in supervisor, agent never sees pixel grid, delay in supervisor is time-based with free roaming (not teleport/freeze)
+
+## 2026-06-28 — Supervisor code comparison + F13
+Commit: –
+
+- Compared supervisor eval vs ours: her noise is off during eval via `self.training`; ours has no noise in main model.py at all (only in standalone e0/e1/e2 experiments)
+- Compared eval mechanics: her `solo_eval` is sequential and stochastic (Categorical.sample); ours is vectorised B=128 and greedy (argmax)
+- Explained why her sequential eval still takes 30 min: 1.6M steps with no vectorisation vs our 128× batched forward passes
+- Compared NN init: her PFC uses Normal(0,1) input weights (input dominates recurrent 6×); our GDNet uses Normal(0,0.1) (recurrent dominates input ~13×) — memory-dominated by design, slower early learning, appropriate for WM task
+- Explained why supervisor needs explicit warmup/imitation/handover phases: her DLS imitates PFC (needs a trained teacher); our Hab learns independently via value-free APE with no teacher dependency
+- Added F13 to fixes.md documenting parallelism disadvantages and input weight scale analysis

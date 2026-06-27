@@ -348,3 +348,41 @@ Papers already in the vault are marked **[IN VAULT]**. All others need `/add-pap
 
 **Midbrain dopamine neurons signal phasic and ramping reward prediction error during goal-directed navigation. *Cell Reports* (2022).** [URL: https://www.cell.com/cell-reports/fulltext/S2211-1247(22)01320-1]
 *Why added:* Shows that midbrain DA neurons encode BOTH the classic phasic RPE (at reward) AND a slower ramp during approach in the same task. Relevant to the multi-timescale discussion: both components come from the same biological neurons, supporting the idea that a single DA signal can have asymmetric temporal properties.
+
+---
+
+## F13 — Design comparison: vectorised parallelism and input weight scale vs supervisor's code
+
+**Context:** Comparison between our architecture and the supervisor's `tunl_a2c_two_area.py`, relevant to the mémoire Method section and to interpreting any differences in training dynamics.
+
+---
+
+### Parallelism disadvantages
+
+Our `batch_size=128` vectorised training is ~128× faster per wall-clock second than the supervisor's sequential loop (1,600,000 steps × up to 1000 steps/episode, no vectorisation). But it has four structural costs:
+
+1. **Less-online gradient updates.** All 128 environments in a batch use the same frozen weights θ_t — then one update. In sequential training, each episode immediately updates weights before the next episode runs. The policy can only improve as fast as updates happen, not as fast as experience is collected.
+
+2. **All 128 lanes share the same `current_delay`.** The supervisor can advance the curriculum after any individual episode. We can only advance once per batch. Combined with the rolling window of 100 episodes — which is less than one full batch iteration — the delay can advance very aggressively if a single batch goes well. This is likely a contributing cause of the curriculum instability seen in some runs.
+
+3. **Averaged signals wash out per-trial effects.** `evaluate_vec` returns the mean `da_request` across all B lanes. A genuine but noisy reactivation signal on a subset of trials gets averaged with lanes where it didn't fire. This reduces the signal-to-noise on H5 and makes marginal results harder to interpret.
+
+4. **Supervisor's demo replay buffer is architecturally incompatible.** She maintains a `deque` of the best 500 PFC episodes and replays them for DLS at 30% of updates. Mixing live-batch vectorised data with selectively replayed episodes would break the batched forward pass structure. This replay mechanism is one reason her DLS imitation learns more stably than a naive CE loss would.
+
+---
+
+### Input weight scale difference
+
+Both networks use `input_dim=6`. At initialisation, the pre-activation contributions from input vs recurrent are:
+
+| | Input variance (6 × σ²) | Recurrent variance (n × σ²_rec) | Who dominates |
+|---|---|---|---|
+| Supervisor PFC | 6 × 1 = **6** | 512 × 1/512 ≈ **1** | Input by 6× |
+| Supervisor DLS | 6 × 0.004 ≈ **0.024** (Xavier) | — (low-rank) | Roughly balanced |
+| Our GDNet | 6 × 0.01 = **0.06** | n × 0.81/n = **0.81** | Recurrent by ~13× |
+
+Her PFC is **input-driven** at initialisation: observations have strong immediate influence over hidden state dynamics. Our GDNet is **memory-dominated**: the recurrent dynamics have ~13× more influence on `h` than the incoming observation does. This is likely better for a working-memory task — the hidden state has more inertia and resists disruption during the delay period — but it means early learning is slower, because the gradient through the input pathway is small and observations take longer to build structure in the recurrent dynamics.
+
+Her DLS uses Xavier (`std ≈ 0.062` for 6→512), which lands close to our 0.1 input scale. The large-input-weight design is specific to her PFC, not a general pattern across both her networks.
+
+**Implication for the mémoire:** the slower early learning in our GDNet (relative to what a larger `W_in` init would give) is not a bug — it is consistent with the design goal of a network that maintains working memory rather than being input-reactive. It does mean that `hab_onset` timing comparisons with the supervisor's results are not apples-to-apples, independent of the F6 seed-count issue.
