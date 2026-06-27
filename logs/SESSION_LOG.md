@@ -218,3 +218,12 @@ Commit: -
 - Rewrote results_index.md section 3.5 H5 to state the argmax identity plainly; reclassified as "Uninformative (design limitation)"
 - Appended ~20 papers across 7 groups to fixes.md references (RPE foundation, tonic DA/habit balance, DA kinetics, surprise-gating, wave dynamics, plasticity, in-vivo correlates)
 - Code: rolling accuracy tracked per-batch in train.py (F1); variable eval seed in evaluate_vec keyed to episode count (F2); da_pen targets (gain_da * da_request)^2 not da_request^2 (F4); early stop at 99% rolling acc over last 20k episodes; 200k episode cap
+
+## 2026-06-28 — fixes_summary + F1 environment redesign
+Commit: –
+
+- Completed fixes.md: filled in all missing Your opinion / Claude's take fields (F6–F9, F12); F7/F8/F9 resolved by prior fixes
+- Created fixes_summary.md: agent-ready instructions for F1; F2–F12 marked TODO pending discussion
+- F1 agreed decisions: drop distance metric, keep rolling accuracy for curves, change APE teacher to GD's own output (soft directions / one-hot WAIT), full delay redesign
+- Delay redesign: replace teleport+freeze with PUSHBACK phase (env overrides movement back to START, delay counter starts at pushback onset), CONFINED sub-state at START (obs[2]=1), CHOICE when delay_idx >= len_delay (obs[2]=0 + sig_choice)
+- Deep-dive into supervisor env: confirmed obs[2] always 0 in supervisor, agent never sees pixel grid, delay in supervisor is time-based with free roaming (not teleport/freeze)

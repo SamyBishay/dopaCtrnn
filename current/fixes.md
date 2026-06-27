@@ -75,9 +75,9 @@ Compiled after Opus-level scrutiny of results, code, and methodology. Each entry
 
 **Problem:** Every ladder experiment (E2–E9) has exactly 1 seed. E0's own 5-seed spread for `hab_onset` is 7,808–21,376 — a range of ~13,568 episodes and a CV of 37%. The differences being discussed across experiments are much smaller than this natural variance: for example, E6 uniform_tau (2,816) vs E9 naude_full (3,200) differ by only 384 episodes. E8's rank sweep shows no monotone relationship between rank and onset. None of the hab_onset orderings in E2–E9 are statistically interpretable.
 
-**Your opinion:**
+**Your opinion:** Run more experiments from scratch. Previous seeds are impossible to consider comparable given the methodological issues (F1, F2) that were present when they were collected.
 
-**Claude's take:**
+**Claude's take:** Correct call. The 37% CV in hab_onset from E0's 5 seeds means any experiment-level comparison needs at minimum 5 seeds with identical conditions — which the current E2–E9 runs don't have. More importantly, the F1/F2 fixes (rolling accuracy, noise injection) change the dynamics enough that results from the old codebase and results from the fixed codebase aren't the same quantity. The right sequence: fix F1 and F2 first, then rerun all ladder experiments (E0–E9) from scratch with ≥5 seeds. hab_onset comparisons will only be interpretable once the variance estimate is re-established under the corrected code.
 
 ---
 
@@ -85,9 +85,9 @@ Compiled after Opus-level scrutiny of results, code, and methodology. Each entry
 
 **Problem:** E3 `weights_only` gives acc=0.471 in the 22:32 run and acc=0.000 in the 23:09 run, same commit, 1 seed each. The 0.471 is "always enter one arm" behavior (a degenerate policy); 0.000 is "never reach an arm" (timeout). Both are degenerate attractors. The inconsistency shows that with 1 seed, single-run results for partial or failed conditions are not reproducible. The 0.471 should not be interpreted as partial competence.
 
-**Your opinion:**
+**Your opinion:** Covered by previous fixes.
 
-**Claude's take:**
+**Claude's take:** Yes — F7 is F6 instantiated in E3. The inconsistency between the two runs (0.471 vs 0.000) is exactly the n=1 seed variance F6 identifies. Rerunning E3 with ≥5 seeds under the fixed codebase (F1+F2 applied) will reveal whether weights_only is a genuine failure mode or just unlucky attractor selection. No additional fix needed beyond F6.
 
 ---
 
@@ -95,9 +95,9 @@ Compiled after Opus-level scrutiny of results, code, and methodology. Each entry
 
 **Problem:** These are continuous signals logged as per-eval means (each eval is 200 trials). They carry genuine noise — the gate and DA-request fluctuate trial-to-trial within an eval window. The raw traces in fig1 are jagged in a way that makes the dynamics harder to read. A rolling mean over ~20–50 evaluation points (2,000–5,000 episodes) would improve readability without misrepresenting the signal. Unlike accuracy (which is a genuine step function), these are genuinely continuous trajectories that smoothing would clarify.
 
-**Your opinion:**
+**Your opinion:** Already fixed.
 
-**Claude's take:**
+**Claude's take:** Confirmed — the visualiser applies EMA smoothing (α=0.15) to the H2 traces with raw per-eval dots shown underneath (`visualiser.html:128`). No further action needed.
 
 ---
 
@@ -105,9 +105,9 @@ Compiled after Opus-level scrutiny of results, code, and methodology. Each entry
 
 **Problem:** Section 3.5 currently says accuracy recovery "confirm[s] that the goal-directed policy remained intact and was available for expression" and presents devaluation-sensitivity returning after silencing as a further positive finding. Given F3 above, both of these are consequences of the mathematical identity, not of the mechanism. The write-up needs to clearly state that these results cannot distinguish genuine reactivation from the decoding artifact, and that the gate-clamp control (cited as additional support) is subject to the same identity.
 
-**Your opinion:**
+**Your opinion:** Covered by F3.
 
-**Claude's take:**
+**Claude's take:** Correct — F9 is the writing-level symptom of F3. The fix is identical: state the argmax identity plainly and remove any implication that the expression-gain mechanism produced the recovery. No separate action needed once F3's rewrite is done.
 
 ---
 
@@ -246,6 +246,16 @@ Distinguishes *expected uncertainty* (ACh) from *unexpected uncertainty* (NE). U
 No canonical paper proposes the exact z-scored |TD-error| form for gating w_gd. The design is novel. Frame it as "a computational operationalization of Pearce-Hall associability under Yu-Dayan unexpected uncertainty, applied to the DA gate" — grounded and novel, not a re-statement of a prior model.
 
 **Papers still to add to vault:** Rice & Cragg (2008), Cragg & Rice (2004), Pearce & Hall (1980), Yu & Dayan (2005). Run `/add-paper` before citing in the mémoire.
+
+---
+
+## F12 — Early stopping and hab_onset criterion thresholds
+
+**Problem:** Two threshold values need to be consistent and well-motivated: (1) the early-stopping criterion (when does training end early), and (2) the hab_onset detection criterion (when is the habitual system considered competent). Currently early stopping is at 99% rolling accuracy over the last 20k episodes (10% of max 200k); hab_onset is detected when `hab_solo_acc >= 0.8` (80%). Using 80% for hab_onset while early stopping at 99% creates an inconsistency: the experiment can end while the habitual system is only at 80% competence, making hab_onset a weak criterion relative to the stopping condition.
+
+**Your opinion:** Early stopping at 99% accuracy over the last 10% of runs (already implemented). Use 99% instead of 100% for the 80% mark — hab_onset criterion should be 99%, not 80%.
+
+**Claude's take:** Early stopping is already correct: `early_stop_acc = 0.99` and `rolling_window = 20_000` (10% of 200k) are in `config.py:74` and applied in `train.py:339–345`. No change needed there. For hab_onset: changing the threshold from `hab >= 0.8` to `hab >= 0.99` in `analysis.py:152` makes it consistent with the early-stopping criterion and meaningfully stricter — hab_onset now marks the point where the habitual system is genuinely competent, not merely above chance. This also raises the bar for H2 (handoff): `w_gd` must drop *after* hab reaches 99%, not just 80%. The H2 combined_acc pass threshold (`comb[-1] >= 0.8`, line 162) should probably stay at 80% — that's a different question (does the combined system maintain performance) and 99% there would be overly strict given combined-system noise. One-line fix: `analysis.py:152` `hab >= 0.8` → `hab >= 0.99`.
 
 ---
 
