@@ -58,7 +58,7 @@ class GDNet(nn.Module):
         self.W_out = nn.Parameter(torch.randn(a, n) * 0.1)
         self.b_out = nn.Parameter(torch.zeros(a))
         self.w_da  = nn.Parameter(torch.randn(n) * 0.1)
-        self.b_da  = nn.Parameter(torch.zeros(1))
+        self.b_da  = nn.Parameter(torch.tensor([2.0]))
         # Step 5 scalar split: an arbitration readout independent of da_request
         # (which drives the expression gain below). Only read when cfg.da_split
         # is True (DualSystemModel.step); unused parameters when False, so the

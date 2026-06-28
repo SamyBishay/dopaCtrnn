@@ -70,7 +70,7 @@ class Config:
     ret_norm_window: int = 10000      # size of the rolling return-stat window
     lr_gd: float    = 1e-4            # supervisor LR_PFC=1e-4; our 3e-4 was too large for stable GD
     lr_hab: float   = 1e-3            # supervisor LR_DLS=1e-3; habitual benefits from faster imitation
-    entropy_beta: float = 0.05        # higher than default to prevent early policy collapse
+    entropy_beta: float = 0.01        # lowered 0.05→0.01: entropy was the main driver of da_request collapse to 0
     value_coef: float   = 0.5         # supervisor VALUE_COEFF=0.5; matches
     noise_std: float = 0.05            # hidden-state noise injected during training in both networks
     da_exc_base: float = 0.0          # DA excitability additive bias (off by default; E12 sets non-zero)
