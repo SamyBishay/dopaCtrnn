@@ -72,7 +72,7 @@ class Config:
     lr_hab: float   = 1e-3            # supervisor LR_DLS=1e-3; habitual benefits from faster imitation
     entropy_beta: float = 0.05        # exploration bonus; keep at 0.05 — see gain_da note below
     value_coef: float   = 0.5         # supervisor VALUE_COEFF=0.5; matches
-    noise_std: float = 0.05            # hidden-state noise injected during training in both networks
+    noise_std: float = 0.01            # 0.05→0.01: high noise was wiping WM during 8-step delay
     da_exc_base: float = 0.0          # DA excitability additive bias (off by default; E12 sets non-zero)
     da_exc_gain: float = 0.0          # DA excitability gain multiplied by da_tonic
     rpe_alpha: float  = 6.0           # RPE-based DA gate sigmoid slope

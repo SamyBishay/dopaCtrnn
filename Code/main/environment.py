@@ -284,7 +284,10 @@ class TMazeVecEnv:
         m = active & (self.phase == DELAY) & (~just_entered_delay)
         just_entered_choice = np.zeros(self.B, dtype=bool)
         if m.any():
-            self._sig[m] *= 0.1
+            # Only decay signal once agent is confined at START (after pushback).
+            # During pushback the signal stays strong so GD has time to encode WM.
+            in_pb = m & (self.delay_idx < self._pushback_len)
+            self._sig[m & ~in_pb] *= 0.9
             self.delay_idx[m] += 1
 
             # PUSHBACK: programmatically walk agents from arm end back to START.
