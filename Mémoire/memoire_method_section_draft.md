@@ -92,8 +92,6 @@ with `α = 6.0` and `bias = −2.0`, so that w_GD ≈ 0 when da_request ≈ 0 (h
 
 where `mot` is a motivational scaling factor, equal to 1 during normal trials. For devaluation evaluation trials, `mot = 0`, zeroing the goal-directed system's contribution to the combined policy without altering any weights. This implements Villet's reward devaluation manipulation: a value-sensitive system (goal-directed) will show reduced accuracy; a system that never represented reward (habitual) is unaffected.
 
-During training, `w_GD` is overridden by an RPE-derived gate (see §2.5) rather than computed from `da_request`. This separation ensures that the training signal for the GD system tracks the actual prediction error, while the learned `da_request` signal and mixing weight are free to develop their post-training interpretable form.
-
 ---
 
 ## 2.5 Training procedure
