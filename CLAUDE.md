@@ -58,10 +58,11 @@ Code/
     aggregate_arm.py
   supervisor's code/                 # reference only, do not edit
 current/                              # scratch / gap analysis
-  fixes.md                           # post-scrutiny issues F1–F10 (problem/opinion/take)
+  fixes.md                           # post-scrutiny issues F1–F15 (problem/opinion/take)
   results_index.md                   # index of all experiment result dirs
   memoire_intro_methods_future.md    # working scratch copy
   architectureGraph.md, diffCodeMethods.md, memoire-gaps.md, implications-summary.md
+fixes_summary.md                     # concrete implementation plan derived from fixes.md (root)
 archive/                              # superseded docs — read-only, do not edit
   PROJECT_STATUS_AND_PLAN.md        # old timeline/decision log
   Project overview … handoff.md     # source of truth for model design decisions
@@ -129,10 +130,14 @@ committee can challenge.
   built once and reused unchanged.
 - **Emergent handoff** is driven by a goal-directed DA-request neuron minimising its own
   request, with the **mandatory ablation/reactivation falsification test**: silence the
-  habitual system post-training → GD request should rise. **Current result: accuracy
-  recovers to 1.00, but the DA-request rise is marginal.** This is not yet a clean pass.
-  See §5 for how to write this up — report it honestly, do not round it up to a clean
-  confirmation and do not bury it.
+  habitual system post-training → GD request should rise. **H5 status (important
+  correction):** the old single-seed result (accuracy 1.00, marginal DA-request rise) was
+  obtained with *greedy* (`argmax`) evaluation — silencing the habitual network collapsed
+  to `argmax(w_gd · π_gd)`, making accuracy recovery a mathematical identity of the
+  decoding rule, not evidence of the mechanism. **Do not report the old result as even a
+  partial confirmation of the dormant-trace account.** With stochastic eval (now
+  implemented), the test is genuine; rerun H5 under the corrected codebase before writing
+  Results. See §5.
 
 **Open question, not yours to decide:** DA-request training signal — reward-supervised
 (circularity risk) vs. purely local prediction-error. Unresolved; if it becomes relevant
@@ -142,11 +147,28 @@ to a sentence you're writing, flag it rather than picking a side.
 
 ## 4. The writing task (this is the job now)
 
-**New hypothesis H_tau** (E6/E7/E9): DA recruitment increases effective integration
-timescale in the GD network. If any of E6, E7, E9 produce results before the deadline,
-add H_tau to the Results section (prediction: widen units converge faster to decision
-attractors; deepen units are harder to perturb from WM state). E6 tests uniform tau
-shortening; E7 tests asymmetric widen/deepen split; E9 tests recurrent gain + dual tau.
+**New hypothesis H_tau** (E6/E7/E9/E10/E11/E12/E13): DA recruitment increases effective
+integration timescale in the GD network. If any produce results before the deadline, add
+H_tau to Results. Predictions: widen units converge faster to decision attractors; deepen
+units are harder to perturb from WM state. Experiment DAG:
+
+```
+E0 → E1 → E2
+           └─→ E6  DA uniform tau shortening (prerequisite for E3, E4, E7, E10, E12)
+                   ├─→ E3   DA output gain (gain_only / weights_only / combined)
+                   ├─→ E4   value-free vs value-coupled APE
+                   ├─→ E7   DA tau widen/deepen
+                   ├─→ E10  DA recurrent gain only (NEW — isolate before combining)
+                   │        ├─→ E11  recurrent gain + DA plasticity (NEW)
+                   │        └─→ E9   recurrent gain + dual tau (parents: E10, E7)
+                   └─→ E12  DA excitability — additive bias in GDNet.step() (NEW)
+                            └─→ E13  excitability + plasticity + dual tau (NEW)
+                                     (parents: E12, E11, E7)
+```
+
+All ladder experiments require ≥5 seeds (37% CV in hab_onset from E0's 5-seed spread
+makes single-seed timing results uninterpretable). E2 arms: ego/allo split (main) +
+freeze-hab ablation; drop the expression/scheduled arm (not load-bearing).
 
 Remaining deliverables, in the order to tackle them:
 
@@ -183,14 +205,16 @@ For each hypothesis (H1, H2, H3, H5, H6, H7 — H4 if run):
    to ask. Check `aggregate.py`'s summary output before writing a number from a single
    seed's `results.json`.
 3. **State whether it's a clean pass, and if not, say so plainly.** H5 specifically:
-   write that accuracy recovered to ceiling but the DA-request signal's rise was
-   marginal — present this as an honest partial result, not a clean confirmation of the
-   dormant-trace account. Offer the two readings (gate-clamp-style reasoning: did
-   recovery come from the preserved goal-directed policy, or could it be explained by
-   the gate alone) **only if the data can actually distinguish them** — if the
-   gate-clamp control was not run, say that the data cannot yet distinguish a genuine
-   reactivation from a control-loop artifact, and that this is exactly why it is named
-   as the first item in Future Research, not asserted as established.
+   the old result (greedy eval, single seed) was a **mathematical identity** — silencing
+   the habitual network under argmax decoding made recovery a consequence of the decoding
+   rule, not the mechanism. **Do not report it at all, even as partial.** Write only from
+   the stochastic-eval rerun. If that rerun shows accuracy recovery AND a genuine
+   DA-request rise: report as a clean pass. If accuracy recovers but request rise is
+   marginal: report as partial, state plainly that the data cannot distinguish genuine
+   reactivation from a gate artifact, and name this as the first Future Research item.
+   If the rerun is not complete by the deadline: state that H5 was not conclusively
+   tested due to an evaluation confound discovered post-hoc, and place it in Future
+   Research.
 4. Never tune the write-up to make a hypothesis look stronger than the number supports.
    A modelling paper that reports its own ambiguous result honestly is more credible to
    a committee than one that rounds up.

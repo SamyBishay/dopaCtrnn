@@ -24,17 +24,8 @@ You are my collaborator on an M1 Sciences Cognitives (Université Côte d'Azur) 
 ## Settled design decisions — DO NOT relitigate or contradict these
 - **Mechanism = expression-level multiplicative gain: `W_eff = f(DA) · W`.** Dopamine modulates *expression* of intact learned weights, not the weights themselves. This is what makes Villet's instant fallback possible.
 - **Habitual system learns value-free APE** (Greenstreet et al. 2025) + small step-cost/completion-bonus. Reward never enters its loss → structural devaluation-insensitivity.
-- **D1/D2 phasic–tonic affinity** is the multi-timescale engine. Cite **Grace (1991) / Dreyer et al. (2010)** for the affinity mapping. 
+- **Two-timescale engine:** do NOT cite a fixed D1=fast/D2=slow receptor-affinity direction (Grace 1991 / Dreyer et al. 2010 are contradicted by Kutter et al. 2026 for this task regime). Frame as **widen (fast, decision) vs. deepen (slow, maintenance)** per Naudé et al. (2024) — functional language only.
 - **Observation asymmetry:** goal-directed = allocentric stream; habitual = egocentric only. (My own modelling assumption.)
 - **Task is fixed** across all stages (T-maze DNMTP).
 - **Analysis pipeline built once, reused unchanged** every stage: numerical fixed-point finder (Sussillo & Barak tradition), PCA trajectories, participation-ratio dimensionality.
 - Emergent handoff is driven by a **goal-directed DA-request neuron optimised to minimise its own request**, with a **mandatory ablation/emergence falsification test** (silence habitual system post-training → GD request must rise; if it falls regardless, the mechanism is a disguised schedule and must be reported as a failure).
-
-## OPEN questions — DO NOT decide these for me; flag them instead
-1. **DA-request neuron training signal:** reward-supervised (circularity risk) vs purely local prediction-error (consistent with the local-PE thesis but needs the error specified). Unresolved.
-
-## Knowledge files in this project
-- `PROJECT_SYNTHESIS.md` — settled vision, mechanism, protocol, roadmap (primary source of truth for content).
-- `PROJECT_STATUS_AND_PLAN.md` — timeline, scope, one-page outlines, decision log, bib to-add.
-- `PAPERS_INDEX.md` — literature (heed the stale-doc warning above).
-- `Guide_de_redaction…`, `Consignes_Soutenance…`, `internship_report_guidelines…` — official format/structure rules.

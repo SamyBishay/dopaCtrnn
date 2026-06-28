@@ -288,3 +288,11 @@ Commit: –
 - Decided against continuous 2D action space — discrete N/S/E/W/WAIT stays
 - Updated fixes_summary APE teaching signal: keep combined policy as teacher (not GD-only), soft KL over all 5 actions every step, no WAIT special case — matches supervisor exactly
 - "Habitual update frequency" section in fixes_summary still inconsistent with batch=1 episode framing — needs cleanup next session
+
+## 2026-06-28 — fixes_summary audit + CLAUDE/GOALS/PROJECT_INSTRUCTIONS sync
+Commit: c54779385b8d1e57b720fe82d2798c533ddedf99
+
+- Moved fixes_summary.md from current/ to vault root; updated CLAUDE.md §3/§4/§5 (H5 greedy-eval invalidation, expanded DAG E10–E13, new H5 write-up rule), GOALS.md (H5 flagged invalid, tau ladder expanded), PROJECT_INSTRUCTIONS.md (replaced Grace/Dreyer D1/D2 citation with widen/deepen framing)
+- Cross-checked all fixes_summary prescriptions against the actual code (model.py, train.py, analysis.py, environment.py, config.py); Opus independently confirmed 11/12 issues
+- Corrected fixes_summary: stochastic eval now uses Categorical not multinomial; noise insertion scoped after full if/else block; DA excitability snippet fixed (no rec_gain outside recurrent branch, exc_bias added after if/else, input da_tonic clarified); RPE gate now specifies force_w routing, _train_batch return signature change, and correct config param names (da_cost_lambda/da_warmup/da_ramp not da_pen); delay redesign config names corrected (delay_max/delay_advance_acc not delay_end/delay_step); E2 freeze_hab flag named; E11/E12 config defaults added to §1; E3 "combined" vs "both" disambiguated
+- Added §3 results streaming (watch_results.py, incremental batch viz) and §4 per-experiment graph requirements (smoothed accuracy, steps to goal, DA recruitment, hypothesis pills); confirmed maze+agent and legend hover exist in visualiser.html but are absent from batch_visualiser.html

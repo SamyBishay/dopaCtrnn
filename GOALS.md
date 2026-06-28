@@ -18,19 +18,25 @@ deepen (slow/maintenance) framing from Naudé et al. (2024) instead — see CLAU
 | H1 learning ≥80% | combined accuracy → 1.00 ✓ |
 | H2 emergent handoff | habitual competence (~ep1500) precedes w_GD drop (~ep2500) ✓ |
 | H3 devaluation dissociation | learning-phase drop ≈0.5, maintenance ≈0.0 ✓ |
-| H5 reactivation (falsification) | silencing habitual → accuracy 1.00 ✓ (DA-request rise marginal — report honestly) |
+| H5 reactivation (falsification) | OLD RESULT INVALID — greedy eval made recovery a mathematical identity. Rerun with stochastic eval before reporting anything. |
 | H6 working-memory attractor | delay-period arm decoder = 1.00 ✓ |
 | H7 untrained control | ≈ chance ✓ |
 
 Stages 2–7 = planned/future work. Write Stage 1 as self-sufficient.
 
-**Planned tau/gain experiments (H_tau ladder):**
+**Planned tau/gain experiments (H_tau ladder — all require ≥5 seeds):**
 
-| Experiment | Flag | Description | Status |
-|---|---|---|---|
-| E6 | `da_tau=True, tau_mode="uniform"` | DA-modulated tau, uniform init — does uniform shortening suffice? | planned — 50k smoke run pending |
-| E7 | `da_tau=True` (tau_mode="mixed") | DA-modulated tau, widen/deepen split — is asymmetry necessary? | planned — 50k smoke run pending |
-| E9 | `da_gain_mode="recurrent", da_tau=True` | Full Naudé: recurrent gain + dual tau — most faithful NMDA implementation | planned — 50k smoke run pending |
+| Experiment | Description | Status |
+|---|---|---|
+| E6 | DA uniform tau shortening — prerequisite for all below | planned |
+| E7 | DA tau widen/deepen split — is asymmetry necessary? | planned |
+| E9 | Recurrent gain + dual tau (parents: E10, E7) | planned |
+| E10 (NEW) | Recurrent gain only — isolate before combining | planned |
+| E11 (NEW) | Recurrent gain + DA plasticity (LR scaling) | planned |
+| E12 (NEW) | DA excitability — additive bias in GDNet.step() | planned |
+| E13 (NEW) | Excitability + plasticity + dual tau (parents: E12, E11, E7) | planned |
+
+**Corrected codebase prerequisites before any ladder rerun:** stochastic eval, W_in std=1.0 (F13), APE teaching signal from GD output only, RPE-based DA gate, pushback delay phase, noise injection, DA excitability bias, hab_onset criterion ≥0.99. See `fixes_summary.md` §1.
 
 ---
 
