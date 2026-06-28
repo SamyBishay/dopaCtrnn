@@ -44,7 +44,7 @@ class Config:
     tau_slow: float  = 25.0           # slow units keep long WM timescale (dt/tau≈0.04)
     tonic_kappa: float = 0.10         # low-pass rate for tonic DA
     gain_base: float   = 0.5          # expression gain at DA=0 (W_eff = gain * W)
-    gain_da: float     = 0.5          # extra expression gain per unit DA
+    gain_da: float     = 0.0          # 0.5→0.0: gain coupling was the entropy→DA collapse path
     wgd_alpha: float   = 6.0          # w_GD = sigmoid(alpha * DA + bias)
     wgd_bias: float    = -2.0         # init so w_GD → low when DA → 0
     da_split: bool     = False        # False (default): expression-gain and arbitration use the
@@ -70,7 +70,7 @@ class Config:
     ret_norm_window: int = 10000      # size of the rolling return-stat window
     lr_gd: float    = 1e-4            # supervisor LR_PFC=1e-4; our 3e-4 was too large for stable GD
     lr_hab: float   = 1e-3            # supervisor LR_DLS=1e-3; habitual benefits from faster imitation
-    entropy_beta: float = 0.01        # lowered 0.05→0.01: entropy was the main driver of da_request collapse to 0
+    entropy_beta: float = 0.05        # exploration bonus; keep at 0.05 — see gain_da note below
     value_coef: float   = 0.5         # supervisor VALUE_COEFF=0.5; matches
     noise_std: float = 0.05            # hidden-state noise injected during training in both networks
     da_exc_base: float = 0.0          # DA excitability additive bias (off by default; E12 sets non-zero)
@@ -112,7 +112,7 @@ class Config:
     attractor_trials: int = 300       # H6 PCA + decoder
 
     # ---- trajectory visualization ----
-    traj_log_every: int   = 0          # 0 = off for timed runs; _record_episode adds overhead
+    traj_log_every: int   = 1000       # greedy snapshot every 1000 ep for training-time player
     traj_eval_trials: int = 60
 
     # checkpoint selection (Villet's criteria, translated to eval windows)
