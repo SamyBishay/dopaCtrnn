@@ -46,7 +46,7 @@ The agent is a dual-system model in which two continuous-time recurrent networks
 
   **τ dh/dt = −h + W h + W_in x + b**
 
-with a pointwise tanh nonlinearity on the recurrent term and learnable time constants τ per unit, implemented in discrete time as `h ← h + (dt / τ) · dh`. Both networks inject Gaussian noise into the hidden state during training (`noise_std = 0.05`) to regularise the dynamics.
+with a pointwise tanh nonlinearity on the recurrent term and learnable time constants τ per unit, implemented in discrete time as `h ← h + (dt / τ) · dh`. Both networks inject Gaussian noise into the hidden state during training (`noise_std = 0.01`) to regularise the dynamics.
 
 ### 2.4.1 Goal-directed system (mPFC / DMS analogue)
 
@@ -64,7 +64,7 @@ The network emits action logits, a scalar value estimate, and a scalar **DA-requ
 
   **da_request = σ(h · w_da + b_da)**
 
-The DA-request feeds back to set the system's own expression gain and the policy mixing weight (§2.4.3). An L2 penalty on `da_request²` in the training objective (§2.5) pressures the goal-directed system to minimise its own dopamine demand. It can do so without sacrificing reward only once the habitual system's policy is competent — the mechanism for the emergent handoff (H2).
+The DA-request feeds back to set the system's own expression gain and the policy mixing weight (§2.4.3). The system can reduce its dopamine demand — and thus cede control to the habitual system — without sacrificing reward only once the habitual policy is competent; this is the mechanism for the emergent handoff (H2). During training, the mixing weight w_GD is overridden by an RPE-based gate (§2.5) rather than derived from da_request, so that the handoff training signal tracks the actual prediction error directly.
 
 The goal-directed system is trained by **advantage actor-critic with generalised advantage estimation** (A2C-GAE; Mnih et al., 2016; `γ = 0.99`, `λ_GAE = 0.95`) on the task reward, with return normalisation (`ret_norm_window = 10,000`). The policy and entropy losses are additionally scaled at each batch by the current mean mixing weight w_GD (see §2.4.3), so that once the handoff occurs and w_GD is near zero, the goal-directed policy gradient is nearly zeroed — preserving the learned solution in a dormant but intact state.
 
@@ -74,9 +74,9 @@ The habitual system receives a **4-dimensional position-free observation**: `[0,
 
 The network has `n_hab = 128` units. When `hab_rank > 0`, the recurrent weight matrix is **low-rank**, parameterised as `W_rec = (M · N^T) / n_hab` with M and N of shape `[n_hab, rank]`, initialised with standard deviation 0.1. This makes the claim that habitual motor sequences are low-dimensional structural rather than something to be recovered post-hoc, and substantially reduces the parameter count of the system most expected to be stereotyped. In the full-rank ablation (§2.6, Ablation 4), the constraint is removed.
 
-The habitual system has two opponent output readouts following the OpAL\* architecture (Jaskir & Frank, 2023):
+Action logits are emitted by a single linear readout:
 
-  **π_H = r_out · W_Go^T − r_out · W_NoGo^T**
+  **π_H = r_out · W_out^T**
 
 Crucially, the habitual system is trained **entirely without task reward**. Its learning signal is an action prediction error: a per-step KL divergence of the habitual policy against the combined policy's action distribution (a soft behavioural cloning target), plus a small intrinsic completion bonus for reaching arm ends (`eff_weight = 0.10`). Because reward never enters the habitual objective, the system cannot, in principle, change its behaviour when reward is devalued — the structural source of the devaluation insensitivity observed in H3.
 
@@ -92,11 +92,15 @@ with `α = 6.0` and `bias = −2.0`, so that w_GD ≈ 0 when da_request ≈ 0 (h
 
 where `mot` is a motivational scaling factor, equal to 1 during normal trials. For devaluation evaluation trials, `mot = 0`, zeroing the goal-directed system's contribution to the combined policy without altering any weights. This implements Villet's reward devaluation manipulation: a value-sensitive system (goal-directed) will show reduced accuracy; a system that never represented reward (habitual) is unaffected.
 
+During training, `w_GD` is overridden by an RPE-derived gate (see §2.5) rather than computed from `da_request`. This separation ensures that the training signal for the GD system tracks the actual prediction error, while the learned `da_request` signal and mixing weight are free to develop their post-training interpretable form.
+
 ---
 
 ## 2.5 Training procedure
 
-A single network is trained for up to 200,000 episodes (batches of `B = 128` parallel environments), with early stopping when the rolling combined accuracy over the last 5,000 episodes exceeds 99%. The habitual system is updated at every timestep (per-step KL backward pass, one optimiser step per step); the goal-directed system is updated at episode end (A2C-GAE over the full episode trajectory). Separate optimisers and learning rates are used: `lr_GD = 10⁻⁴` (goal-directed, Adam), `lr_hab = 10⁻³` (habitual, Adam). Gradient norms are clipped to 0.5. The DA-recruitment penalty (`da_cost_lambda · da_request²`) is phased in after a warmup of 100 training iterations.
+A single network is trained for up to 200,000 episodes (batches of `B = 128` parallel environments), with early stopping when habitual-solo accuracy ≥ 99% is sustained over the last 10,000 episodes. The habitual system is updated at every timestep (per-step KL backward pass, one optimiser step per step); the goal-directed system is updated at episode end (A2C-GAE over the full episode trajectory). Separate optimisers and learning rates are used: `lr_GD = 10⁻⁴` (goal-directed, Adam), `lr_hab = 10⁻³` (habitual, Adam). Gradient norms are clipped to 0.5.
+
+During training, `w_GD` is overridden by an **RPE-based gate** rather than read from the learned `da_request` signal. The mean absolute GAE advantage is tracked with an exponential running mean and variance (α = 0.01); a normalised score z is computed at each iteration, and `da_signal = σ(z)` when z > 0 (else decayed slowly). The training mixing weight is then `current_w_GD = σ(6 · da_signal − 2)`, kept at 1.0 during a warmup period of 100 iterations and while habitual-solo accuracy is still below 99%. This mechanism pressures the goal-directed gradient to zero as the RPE signal falls — mirroring the functional role of the L2 penalty described in earlier design notes — without adding a separate objective term.
 
 Two checkpoints are saved during training for use in the phase-crossed manipulations (§2.6). The **learning-phase checkpoint** (`ckpt_learn`) is saved when combined accuracy first exceeds 70% while habitual-solo accuracy is still ≤ 70%, capturing the period when the goal-directed system is the primary controller and the habitual system has not yet become competent. The **maintenance-phase checkpoint** (`ckpt_maint`) is saved at the last evaluation where habitual-solo accuracy reaches ≥ 80%, capturing the overtrained state.
 
@@ -108,7 +112,7 @@ All reported results use ≥ 5 independently seeded runs. Single-seed results ar
 
 ### Main model
 
-The main model activates all four design choices: ego/allo observational split, low-rank habitual network (`hab_rank = 4`), value-free APE training rule, and DA output gain (`gain_DA = 0.5`). This is the model evaluated against H1–H7.
+The main model activates all four design choices: ego/allo observational split, low-rank habitual network (`hab_rank = 2`), value-free APE training rule, and DA output gain (`gain_DA = 0.5`). This is the model evaluated against H1–H7.
 
 ### Ablation 1 — Remove the observational asymmetry
 
