@@ -315,3 +315,34 @@ Commit: a47a4751ec3a80e1df93251338a39624013ca65b
 - environment: PUSHBACK delay walk replaces teleport, CONFINED signal obs[2], fixed delay, signal magnitudes from geometry
 - train: per-step KL hab update (Villet-faithful), RPE-based DA gate replaces penalty ramp, curriculum removed, steps_to_goal logged; fixed BPTT graph error (detach h_hab after per-step backward)
 - Added watch_results.py live monitoring script; smoke test passes (3k episodes, no crash, accuracy rising)
+
+---
+
+## 2026-06-28 — DA collapse fix, WM fix, early-stop change, batch viz UI polish
+Commits: 09ed2f5 f69e0c3 eb322e8 40a187b 4b9b50f 8a58186
+
+**DA-request collapse diagnosis and fix:**
+- Root cause: entropy bonus term (`entropy_beta * H`) flowed through expression gain (`gain_da=0.5`) to pull da_request→0 monotonically
+- Fix: `gain_da=0.0` (breaks entropy→DA gradient path); `b_da=2.0` init (da_request starts at ~0.88 instead of 0.5)
+- Reverted entropy_beta 0.01→0.05 (policy had collapsed to confident-wrong-action at 0.01)
+- Removed broken stop hooks from `.claude/settings.json` (pointed to `/home/samy/` — wrong username)
+
+**Working memory failure diagnosis and fix:**
+- Root cause: `self._sig[m] *= 0.1` during pushback zeroed the signal in 2 steps, leaving GD network blind to sample arm during entire delay; `noise_std=0.05` additionally wiped any encoded memory
+- Fix: signal held constant during pushback (6 steps), then decays gently at 0.9×/step only once agent is confined at START; `noise_std` 0.05→0.01
+- After fix, combined accuracy rises to 1.0 on at least one seed; habit trails behind then catches up
+
+**Training changes:**
+- Early stopping: replaced combined rolling-window criterion with `hab_solo_acc >= 0.99` sustained over last 10k episodes (`hab_stop_acc`, `hab_stop_window` in config)
+- Curriculum reinstated: delay starts at 8, advances when hab_solo_acc ≥ 0.75 for 2 consecutive evals
+
+**Batch visualiser UI (batch_visualiser.html):**
+- `--open` flag in batch_runner.py now default-on (renamed to `--no-open`); opens seed-dropdown batch viz after each run
+- Header made `position:sticky` so seed selector stays visible while scrolling
+- `loadSeed()` saves/restores `window.scrollY` — seed change no longer jumps to top of page
+- `renderH2()`: thin per-seed combined_acc curves (opacity 0.28) drawn alongside mean ± sd band; hover-highlight applies consistently to both seed lines and mean
+
+**TODO(verify) / open items:**
+- E0 run (5 seeds) failed rc=1 for all seeds (sklearn/scipy pip-installed mid-run; may need rerun)
+- E2 seeds 1 and 2 completed cleanly before scipy install; seeds 0,3,4 may need rerun
+- H5 stochastic-eval rerun not yet complete — do not write Results for H5 until rerun shows clean data
