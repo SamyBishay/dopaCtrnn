@@ -129,8 +129,8 @@ def main():
                          "(default: 2.0); set 0 to disable memory-aware throttling")
     ap.add_argument("--dry-run", action="store_true",
                     help="print the commands that would run, without running them")
-    ap.add_argument("--open", action="store_true",
-                    help="after all seeds finish, build the visualiser and open seed0 in Firefox")
+    ap.add_argument("--no-open", action="store_true",
+                    help="skip building the visualiser and launching Firefox")
     args = ap.parse_args()
 
     exps = list(EXPERIMENTS.keys()) if args.exp == "all" else [args.exp]
@@ -235,7 +235,7 @@ def main():
         with open(batch_dir / f"batch_summary_{ts}_{commit}.json", "w") as f:
             json.dump(summary, f, indent=2, default=float)
 
-    if args.open and not args.dry_run:
+    if not args.no_open and not args.dry_run:
         viz_script = HERE.parent / "visualisations" / "build_viz.py"
         for exp_name in exps:
             exp_def = EXPERIMENTS[exp_name]
