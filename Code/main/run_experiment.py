@@ -89,6 +89,8 @@ def main():
                     help="Log-space tau shift magnitude per unit DA (default 0.5)")
     ap.add_argument("--freeze-hab", action="store_true",
                     help="E2 ablation: skip hab gradient updates (tests GD learns without hab)")
+    ap.add_argument("--gain-da", type=float, default=None,
+                    help="DA expression gain (mémoire Ablation 3 sets this to 0; default from config)")
     args = ap.parse_args()
 
     cfg = Config(seed=args.seed, device=args.device)
@@ -134,6 +136,8 @@ def main():
         cfg.da_tau_gain = args.da_tau_gain
     if args.freeze_hab:
         cfg.freeze_hab = True
+    if args.gain_da is not None:
+        cfg.gain_da = args.gain_da
 
     tag = f"seed{args.seed}" + ("_untrained" if args.untrained else "")
     outdir = os.path.join(args.outdir, tag)

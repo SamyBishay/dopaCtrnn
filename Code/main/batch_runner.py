@@ -27,37 +27,47 @@ HERE = Path(__file__).parent
 
 # Each entry: flag name (None = no varying flag, just repeat the default arm),
 # the arm values to sweep, and any extra config overrides every arm needs
-# (e.g. E2/E3 need da_split=True for the split to be non-vacuous -- see
-# IMPLEMENTATION_ROADMAP.md Step 5/§5).
+# Experiment definitions mapping to mémoire §2.6.
+# "e2" is the main experiment: main model + 4 ablations, each removing one
+# design choice while holding the other three fixed.  arms_extra applies
+# per-arm config overrides on top of the shared extra dict.
 EXPERIMENTS = {
-    "e0": {"flag": None,           "arms": ["default"],
-           "extra": {}},
-    "e2": {"flag": None,           "arms": ["main"],
-           "extra": {}},
-    "e2_ablation": {"flag": None,  "arms": ["freeze_hab"],
-                    "extra": {"freeze_hab": True}},
-    "e3": {"flag": "da_components", "arms": ["both", "gain_only", "weights_only"],
-           "extra": {"da_split": True}},
-    "e4": {"flag": "habit_rule",   "arms": ["value_free", "value_coupled"],
-           "extra": {}},
-    "e5": {"flag": "habit_obs",    "arms": ["position_free", "allocentric"],
-           "extra": {}},
-    "e8": {"flag": "hab_rank",     "arms": ["0", "1", "2", "4", "8"],
-           "extra": {}},
-    "e6": {"flag": None, "arms": ["uniform_tau"],
-           "extra": {"da_tau": True, "tau_mode": "uniform"}},
-    "e7": {"flag": None, "arms": ["dual_tau"],
-           "extra": {"da_tau": True}},
-    "e9": {"flag": None, "arms": ["naude_full"],
-           "extra": {"da_gain_mode": "recurrent", "da_tau": True}},
+    # E0: single-area baseline (default config, no DA gating or hab/GD split).
+    # Used to confirm the task is learnable at all before adding architecture.
+    "e0": {"flag": None, "arms": ["default"], "extra": {}},
+
+    # E2: the main experiment (mémoire §2.6).
+    # main       — all four design choices active (hab_rank=4, gain_da=0.5,
+    #              position-free hab obs, value-free APE).
+    # abl_obs    — Ablation 1: remove observational asymmetry (hab sees full
+    #              allocentric obs including x,y).
+    # abl_value  — Ablation 2: remove value-free rule (habit gets A2C on
+    #              task reward → devaluation sensitivity restored).
+    # abl_gain   — Ablation 3: remove DA output gain (gain_da=0 → expression
+    #              gain fixed at baseline, reactivation should fail).
+    # abl_rank   — Ablation 4: remove low-rank constraint (hab_rank=0,
+    #              full-rank recurrent weight matrix).
+    "e2": {
+        "flag": None,
+        "arms": ["main", "abl_obs", "abl_value", "abl_gain", "abl_rank"],
+        "extra": {},
+        "arms_extra": {
+            "main":      {},
+            "abl_obs":   {"habit_obs": "allocentric"},
+            "abl_value": {"habit_rule": "value_coupled"},
+            "abl_gain":  {"gain_da": 0.0},
+            "abl_rank":  {"hab_rank": 0},
+        },
+    },
 }
 
 CLI_FLAG = {
-    "gate_mode": "--gate-mode",
-    "da_components": "--da-components",
-    "habit_rule": "--habit-rule",
-    "habit_obs": "--habit-obs",
-    "hab_rank": "--hab-rank",
+    "gate_mode":    "--gate-mode",
+    "da_components":"--da-components",
+    "habit_rule":   "--habit-rule",
+    "habit_obs":    "--habit-obs",
+    "hab_rank":     "--hab-rank",
+    "gain_da":      "--gain-da",
     "da_gain_mode": "--da-gain-mode",
     "tau_mode":     "--tau-mode",
     "da_tau":       "--da-tau",
@@ -84,14 +94,19 @@ def _build_cmd(exp_def, arm, seed, episodes, outdir, device=None):
     flag = exp_def["flag"]
     if flag is not None and arm != "default":
         cmd += [CLI_FLAG[flag], arm]
-    for k, v in exp_def["extra"].items():
-        if isinstance(v, bool):
-            if v:
-                cmd.append(f"--{k.replace('_', '-')}")
-            # False bool flags: omit (don't pass --no-X)
-        else:
-            cli_k = CLI_FLAG.get(k, f"--{k.replace('_', '-')}")
-            cmd += [cli_k, str(v)]
+    def _apply_extra(overrides):
+        for k, v in overrides.items():
+            if isinstance(v, bool):
+                if v:
+                    cmd.append(f"--{k.replace('_', '-')}")
+                # False bool flags: omit (don't pass --no-X)
+            else:
+                cli_k = CLI_FLAG.get(k, f"--{k.replace('_', '-')}")
+                cmd.extend([cli_k, str(v)])
+
+    _apply_extra(exp_def["extra"])
+    # Per-arm overrides (applied after shared extra, so they win on conflict)
+    _apply_extra(exp_def.get("arms_extra", {}).get(arm, {}))
     return cmd
 
 

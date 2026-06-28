@@ -36,15 +36,17 @@ class Config:
     # ---- network sizes (model.py) ----
     n_gd: int    = 512                # supervisor PFC_HIDDEN=512; 256 was likely too small
     n_hab: int   = 128                # 128 suffices for a 4-dim phase-signal policy; 512 was ~16x overparameterised
-    hab_rank: int = 0                 # 0 = full-rank habitual W (default, original behaviour);
-                                      # >0 = low-rank W_rec = (m @ n.T)/n_hab, rank=hab_rank.
-                                      # Makes "habit is low-dimensional" structural. Try 2-8.
+    hab_rank: int = 2                 # main model: low-rank habitual W (mémoire §2.4.2, Ablation 4
+                                      # uses 0). W_rec = (m @ n.T)/n_hab, rank=hab_rank.
+                                      # Makes "habit is low-dimensional" structural.
     dt: float    = 1.0
     tau_fast: float  = 5.0            # dt/tau=0.2 → matches supervisor ALPHA=0.2 for fast units
     tau_slow: float  = 25.0           # slow units keep long WM timescale (dt/tau≈0.04)
     tonic_kappa: float = 0.10         # low-pass rate for tonic DA
     gain_base: float   = 0.5          # expression gain at DA=0 (W_eff = gain * W)
-    gain_da: float     = 0.0          # 0.5→0.0: gain coupling was the entropy→DA collapse path
+    gain_da: float     = 0.5          # main model (mémoire §2.4.1); Ablation 3 sets this to 0.
+                                      # NOTE: with entropy_beta=0.05 this recreates the entropy→DA
+                                      # coupling — monitor da_request during training.
     wgd_alpha: float   = 6.0          # w_GD = sigmoid(alpha * DA + bias)
     wgd_bias: float    = -2.0         # init so w_GD → low when DA → 0
     da_split: bool     = False        # False (default): expression-gain and arbitration use the
