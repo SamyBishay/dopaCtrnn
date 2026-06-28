@@ -268,6 +268,8 @@ def train(cfg, verbose=True):
                              "gd_solo_acc", "w_gd", "da_recruit", "delay",
                              "fixed_delay_acc", "rolling_acc", "steps_to_goal")}
     rolling_buf = deque(maxlen=cfg.rolling_window)
+    hab_stop_evals = max(1, cfg.hab_stop_window // cfg.eval_every)
+    hab_eval_buf = deque(maxlen=hab_stop_evals)   # recent hab_solo eval accuracies
     ckpt_learn = ckpt_maint = first_state = None
     train_trajs = []
     total_episodes = 0
@@ -348,15 +350,6 @@ def train(cfg, verbose=True):
 
         rolling_buf.extend([1] * n_correct + [0] * (B - n_correct))
 
-        # Early stopping: 99% rolling accuracy over the last rolling_window episodes.
-        if (len(rolling_buf) >= cfg.rolling_window
-                and sum(rolling_buf) / len(rolling_buf) >= cfg.early_stop_acc):
-            if verbose:
-                racc = sum(rolling_buf) / len(rolling_buf)
-                print(f"  -> early stop at ep {total_episodes}: "
-                      f"rolling acc {racc:.3f} >= {cfg.early_stop_acc}", flush=True)
-            break
-
         # Trajectory logging (use eval_env for cleanliness)
         if (cfg.traj_log_every > 0
                 and total_episodes % cfg.traj_log_every < B):
@@ -373,6 +366,7 @@ def train(cfg, verbose=True):
             hab  = evaluate_vec(model, eval_env, cfg, cfg.eval_trials, force_w=0.0, seed=ev_seed)
             gd   = evaluate_vec(model, eval_env, cfg, cfg.eval_trials, force_w=1.0, seed=ev_seed)
             comb_acc = comb["acc"]; hab_solo_acc = hab["acc"]   # for APE-decay
+            hab_eval_buf.append(hab["acc"])
             r_acc = (sum(rolling_buf) / len(rolling_buf)) if rolling_buf else 0.0
             logs["episode"].append(total_episodes)
             logs["combined_acc"].append(comb["acc"])
@@ -444,6 +438,15 @@ def train(cfg, verbose=True):
                       f"habSolo {hab['acc']:.2f} gdSolo {gd['acc']:.2f} | "
                       f"w_GD {comb['w_mean']:.2f} DA {comb['da_mean']:.2f} "
                       f"delay {venv.current_delay}{fd_str}", flush=True)
+
+            # Early stop: hab solo ≥ threshold sustained over last hab_stop_window episodes.
+            if (len(hab_eval_buf) >= hab_stop_evals
+                    and min(hab_eval_buf) >= cfg.hab_stop_acc):
+                if verbose:
+                    print(f"  -> early stop at ep {total_episodes}: "
+                          f"habSolo >= {cfg.hab_stop_acc} for last {cfg.hab_stop_window} ep",
+                          flush=True)
+                break
 
         # ---- resumable checkpoint (atomic write) ----
         if cfg.ckpt_every > 0 and cfg.ckpt_path and total_episodes % cfg.ckpt_every < B:

@@ -236,20 +236,22 @@ def main():
             json.dump(summary, f, indent=2, default=float)
 
     if not args.no_open and not args.dry_run:
-        viz_script = HERE.parent / "visualisations" / "build_viz.py"
+        viz_script = HERE.parent / "visualisations" / "build_batch_viz.py"
         for exp_name in exps:
-            exp_def = EXPERIMENTS[exp_name]
             batch_dir = Path(args.root) / exp_name
-            for arm in exp_def["arms"]:
-                arm_dir = batch_dir / arm / f"{ts}_{commit}"
-                print(f"  building visualiser for {exp_name}/{arm} ...", flush=True)
-                subprocess.run([sys.executable, str(viz_script), str(arm_dir)], check=False)
-                html = arm_dir / "seed0" / "viz_seed0.html"
-                if not html.exists():
-                    html = next(arm_dir.glob("**/viz_seed*.html"), None)
-                if html:
-                    print(f"  opening {html} in Firefox", flush=True)
-                    subprocess.Popen(["firefox", str(html)])
+            print(f"  building batch visualiser for {exp_name} ...", flush=True)
+            result = subprocess.run(
+                [sys.executable, str(viz_script), str(batch_dir), "--run", f"{ts}_{commit}"],
+                check=False, capture_output=True, text=True)
+            if result.stdout:
+                print(result.stdout.strip(), flush=True)
+            # batch_viz writes <exp_dir>/viz/batch_<exp_name>.html
+            html = batch_dir / "viz" / f"batch_{exp_name}.html"
+            if not html.exists():
+                html = next(batch_dir.glob("viz/batch_*.html"), None)
+            if html:
+                print(f"  opening {html} in Firefox", flush=True)
+                subprocess.Popen(["firefox", str(html)])
 
     if not overall_ok:
         print("\nWARNING: not every arm independently cleared the H1 learning gate.\n"

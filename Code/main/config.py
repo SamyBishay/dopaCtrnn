@@ -81,7 +81,9 @@ class Config:
     freeze_hab: bool  = False         # if True, skip hab optimizer step entirely (ablation)
     hab_update_freq: int = 1          # K: accumulate KL over K steps before opt_hab.step() (1=every step)
     rolling_window: int  = 5_000     # 5k episodes is sufficient; 20k added a hard floor of ~157 iterations
-    early_stop_acc: float = 0.99     # stop when rolling accuracy reaches this threshold
+    early_stop_acc: float = 0.99     # RPE gate condition: hab_solo must exceed this before gate can close
+    hab_stop_acc: float   = 0.99     # early-stop criterion: hab solo must sustain this accuracy
+    hab_stop_window: int  = 10_000   # … over this many episodes (evaluated via eval_every windows)
     grad_clip: float = 0.5            # supervisor GRAD_CLIP=0.5; tighter clipping stabilises RNN
     ape_weight: float  = 1.0          # habitual APE (action prediction error) weight
     eff_weight: float  = 0.10         # habitual intrinsic-efficiency weight (NOT task reward)
