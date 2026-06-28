@@ -44,13 +44,17 @@ We simulate the DNMTP T-maze of Villet et al. (2025) on a parametric grid (width
 
 The agent is a dual-system model in which two continuous-time recurrent networks (CTRNNs; Beer, 1995) contribute to a combined policy at every timestep. Each network's hidden state evolves as:
 
-  **τ dh/dt = −h + W h + W_in x + b**
+  **τ · dh/dt = −h + W · tanh(h) + W_in · x + b**
 
-with a pointwise tanh nonlinearity on the recurrent term and learnable time constants τ per unit, implemented in discrete time as `h ← h + (dt / τ) · dh`. Both networks inject Gaussian noise into the hidden state during training (`noise_std = 0.01`) to regularise the dynamics.
+where tanh is applied element-wise to h before multiplication with the recurrent weight matrix W. In discrete time with step size dt this becomes:
+
+  **h_{t+1} ← h_t + (dt / τ) · (−h_t + W · tanh(h_t) + W_in · x_t + b)**
+
+Time constants τ are learnable per unit and differ between the widen and deepen subpopulations (§2.4.1). Both networks inject Gaussian noise into the hidden state during training (`noise_std = 0.01`) to regularise the dynamics.
 
 ### 2.4.1 Goal-directed system (mPFC / DMS analogue)
 
-The goal-directed system receives a **6-dimensional allocentric observation**: `[x/(w−1), y/(h−1), 0, sig_L, sig_R, sig_choice]`, where x and y are the agent's normalised grid coordinates, sig_L and sig_R are arm-identity signals active during the sample phase, and sig_choice is a low-amplitude phase indicator active at choice onset. The spatial coordinates give the system access to the agent's full location in the maze, enabling location-based planning.
+The goal-directed system receives a **6-dimensional allocentric observation**: `[x/(w−1), y/(h−1), confined, sig_L, sig_R, sig_choice]`, where x and y are the agent's normalised grid coordinates encoding its full location in the maze, `confined` is a binary signal set to 1.0 when the agent is being held at the start position during the delay hold period (and 0 otherwise), sig_L and sig_R are arm-identity signals active during the sample phase, and sig_choice is a low-amplitude phase indicator active at choice onset. The spatial coordinates give the system access to the agent's full location; the confinement signal additionally disambiguates the delay-hold period from free navigation at the start position.
 
 The network has `n_gd = 512` units, split into two subpopulations (Naudé et al., 2024): a **widen** subpopulation (first 256 units, initialised with short time constants `τ_fast = 5`) operating at the action and decision timescale, and a **deepen** subpopulation (remaining 256 units, `τ_slow = 25`) operating at the maintenance timescale. Input weights are initialised with standard deviation 1.0 (input-dominated initialisation); recurrent weights with `0.9 / √n`.
 
@@ -70,15 +74,15 @@ The goal-directed system is trained by **advantage actor-critic with generalised
 
 ### 2.4.2 Habitual system (DLS analogue)
 
-The habitual system receives a **4-dimensional position-free observation**: `[0, sig_L, sig_R, sig_choice]` — the three phase signals only, with the spatial coordinates withheld. By construction the system has no knowledge of its location in the maze and cannot represent or plan a spatial rule such as non-match-to-place.
+The habitual system receives a **4-dimensional position-free observation**: `[0, sig_L, sig_R, sig_choice]` — the three phase signals only, with spatial coordinates and the confinement signal entirely withheld. The leading zero is a structural placeholder occupying the position slot; the habitual system receives no information about where in the maze the agent is, and cannot represent or plan a spatial rule such as non-match-to-place.
 
 The network has `n_hab = 128` units. When `hab_rank > 0`, the recurrent weight matrix is **low-rank**, parameterised as `W_rec = (M · N^T) / n_hab` with M and N of shape `[n_hab, rank]`, initialised with standard deviation 0.1. This makes the claim that habitual motor sequences are low-dimensional structural rather than something to be recovered post-hoc, and substantially reduces the parameter count of the system most expected to be stereotyped. In the full-rank ablation (§2.6, Ablation 4), the constraint is removed.
 
-Action logits are emitted by a single linear readout:
+Action logits are emitted by a single linear readout applied directly to the network's activations — with no DA expression gain:
 
-  **π_H = r_out · W_out^T**
+  **π_H = tanh(h_hab) · W_out^T**
 
-Crucially, the habitual system is trained **entirely without task reward**. Its learning signal is an action prediction error: a per-step KL divergence of the habitual policy against the combined policy's action distribution (a soft behavioural cloning target), plus a small intrinsic completion bonus for reaching arm ends (`eff_weight = 0.10`). Because reward never enters the habitual objective, the system cannot, in principle, change its behaviour when reward is devalued — the structural source of the devaluation insensitivity observed in H3.
+This distinguishes the habitual readout from the goal-directed readout, which passes through the DA-gated expression gain before the linear projection (§2.4.1). Crucially, the habitual system is trained **entirely without task reward**. Its learning signal is an action prediction error: a per-step KL divergence of the habitual policy against the combined policy's action distribution (a soft behavioural cloning target), plus a small intrinsic completion bonus for reaching arm ends (`eff_weight = 0.10`). Because reward never enters the habitual objective, the system cannot, in principle, change its behaviour when reward is devalued — the structural source of the devaluation insensitivity observed in H3.
 
 ### 2.4.3 DA-gated mixing
 
