@@ -47,7 +47,7 @@ class GDNet(nn.Module):
         super().__init__()
         n, a = cfg.n_gd, cfg.n_actions
         self.cfg = cfg
-        self.W_in  = nn.Parameter(torch.randn(n, cfg.obs_dim) * 0.1)
+        self.W_in  = nn.Parameter(torch.randn(n, cfg.obs_dim) * 1.0)
         self.W     = nn.Parameter(torch.randn(n, n) * (0.9 / n ** 0.5))
         self.b     = nn.Parameter(torch.zeros(n))
         if getattr(cfg, "tau_mode", "mixed") == "uniform":
@@ -100,6 +100,9 @@ class GDNet(nn.Module):
         else:
             dh = -h + r @ self.W.T + x @ self.W_in.T + self.b                        # [B, n]
 
+        exc_bias = self.cfg.da_exc_base + self.cfg.da_exc_gain * da_tonic.unsqueeze(-1)  # [B, n]
+        dh = dh + exc_bias
+
         if da_tau_on:
             tau_mode = getattr(self.cfg, "tau_mode", "mixed")
             da_tau_gain = getattr(self.cfg, "da_tau_gain", 0.5)
@@ -117,6 +120,9 @@ class GDNet(nn.Module):
             h = h + (self.cfg.dt / eff_tau) * dh
         else:
             h = h + (self.cfg.dt / _tau(self.tau_p)) * dh                            # original
+
+        if self.training:
+            h = h + torch.randn_like(h) * self.cfg.noise_std
 
         if lesion:
             h = torch.zeros_like(h)
@@ -196,6 +202,8 @@ class HabNet(nn.Module):
         r  = torch.tanh(h)
         dh = -h + self._rec(r) + x @ self.W_in.T + self.b
         h  = h + (self.cfg.dt / _tau(self.tau_p)) * dh
+        if self.training:
+            h = h + torch.randn_like(h) * self.cfg.noise_std
         if lesion:
             h = torch.zeros_like(h)
         r_out = torch.tanh(h)
