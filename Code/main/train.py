@@ -151,6 +151,10 @@ def _train_batch(model, venv, cfg, opt_gd, opt_hab, force_w=None,
                     kl_step_accum.backward()
                     torch.nn.utils.clip_grad_norm_(model.hab_params(), cfg.grad_clip)
                     opt_hab.step()
+                    # Detach h_hab to cut the BPTT graph: each per-step update is
+                    # a fresh backward pass; without detach the freed graph causes
+                    # RuntimeError on the next step's backward.
+                    model.h_hab = model.h_hab.detach()
                     kl_step_accum = None
                     hab_step_count = 0
                 hab_loss_total += float(kl_step.detach())
@@ -165,6 +169,7 @@ def _train_batch(model, venv, cfg, opt_gd, opt_hab, force_w=None,
         kl_step_accum.backward()
         torch.nn.utils.clip_grad_norm_(model.hab_params(), cfg.grad_clip)
         opt_hab.step()
+        model.h_hab = model.h_hab.detach()
 
     # Stack tensors: leading dim = T (steps taken)
     pi_gd_t   = torch.stack(all_pi_gd)    # [T, B, n_actions]
