@@ -15,7 +15,7 @@
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.5}
-  header{padding:18px 22px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  header{padding:18px 22px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:14px;flex-wrap:wrap;position:sticky;top:0;z-index:100;background:var(--bg)}
   header h1{font-size:17px;margin:0;font-weight:650}
   header .meta{color:var(--mut);font-family:var(--mono);font-size:12px}
   main{max-width:1280px;margin:0 auto;padding:22px;display:flex;flex-direction:column;gap:22px}
@@ -415,6 +415,7 @@ function selectArm(idx){
 document.getElementById("seedsel").addEventListener("change",e=>loadSeed(+e.target.value));
 
 function loadSeed(idx){
+  const _sy = window.scrollY;
   S.seedIdx=idx;
   const armName=B.armOrder[S.armIdx];
   const arm=B.arms[armName];
@@ -442,6 +443,7 @@ function loadSeed(idx){
 
   renderSeedH5();
   renderSeedSupport();
+  requestAnimationFrame(()=>window.scrollTo(0,_sy));
 }
 
 // ── 8a. seed verdicts + stats ───────────────────────────────────────────────
@@ -983,6 +985,17 @@ function renderH2(){
     drawMean("hab_solo_acc","2 3");
     drawMean("gd_solo_acc","5 4");
     drawMean("w_gd","1 4");
+    // thin per-seed combined_acc curves (same colour, lower opacity — highlighted together with mean)
+    (B.arms[arm].seed_data||[]).forEach(sd=>{
+      if(!sd||!sd.results||!sd.results.logs) return;
+      const sl=sd.results.logs;
+      if(!sl.episode||!sl.combined_acc) return;
+      let d="";
+      for(let k=0;k<sl.episode.length;k++) d+=(k?"L":"M")+X(sl.episode[k])+","+Yacc(sl.combined_acc[k]);
+      const p=el("path",{d,fill:"none",stroke:col,"stroke-width":"1",opacity:"0.28"});
+      p.dataset.seedline="1";
+      svg.appendChild(p); myEls.push(p);
+    });
     armPaths[arm]=myEls;
 
     const sp=document.createElement("span");
@@ -999,8 +1012,16 @@ function renderH2(){
         const on=arm===key;
         els.forEach(p=>{
           const isBand=p.dataset.band==="1";
-          p.setAttribute('opacity',on?(isBand?'0.18':'1'):(isBand?'0.04':'0.15'));
-          if(!isBand)p.setAttribute('stroke-width',on?'3':'1');
+          const isSeed=p.dataset.seedline==="1";
+          if(isBand){
+            p.setAttribute('opacity',on?'0.18':'0.04');
+          } else if(isSeed){
+            p.setAttribute('opacity',on?'0.55':'0.05');
+            p.setAttribute('stroke-width',on?'1.5':'0.7');
+          } else {
+            p.setAttribute('opacity',on?'1':'0.15');
+            p.setAttribute('stroke-width',on?'3':'1');
+          }
         });
       });
     });
@@ -1008,8 +1029,10 @@ function renderH2(){
       Object.values(armPaths).forEach(els=>{
         els.forEach(p=>{
           const isBand=p.dataset.band==="1";
-          if(isBand)p.setAttribute('opacity','0.10');
-          else{p.removeAttribute('opacity');p.setAttribute('stroke-width','2');}
+          const isSeed=p.dataset.seedline==="1";
+          if(isBand) p.setAttribute('opacity','0.10');
+          else if(isSeed){ p.setAttribute('opacity','0.28'); p.setAttribute('stroke-width','1'); }
+          else{ p.removeAttribute('opacity'); p.setAttribute('stroke-width','2'); }
         });
       });
     });
