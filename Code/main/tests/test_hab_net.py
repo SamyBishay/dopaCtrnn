@@ -93,28 +93,12 @@ def test_determinism_lesion(setup):
     assert torch.allclose(h_new1, h_new2), "h_new is not deterministic under lesion"
 
 
-# --- Go/NoGo structure tests ---
+# --- Readout structure tests ---
 
-def test_go_nogo_weight_matrices_exist(setup):
+def test_w_out_exists(setup):
     cfg, net, B, x, h = setup
-    assert hasattr(net, "W_go") or any("go" in name.lower() for name, _ in net.named_parameters()), \
-        "Expected net to have W_go parameter"
-    assert hasattr(net, "W_nogo") or any("nogo" in name.lower() for name, _ in net.named_parameters()), \
-        "Expected net to have W_nogo parameter"
-
-
-def test_go_nogo_separate_readouts(setup):
-    """Verify W_go and W_nogo are separate (different) weight matrices."""
-    cfg, net, B, x, h = setup
-    params = dict(net.named_parameters())
-    go_keys = [k for k in params if "go" in k.lower() and "nogo" not in k.lower()]
-    nogo_keys = [k for k in params if "nogo" in k.lower()]
-    assert len(go_keys) > 0, "No W_go-like parameter found"
-    assert len(nogo_keys) > 0, "No W_nogo-like parameter found"
-    # They must not be the same tensor
-    go_param = params[go_keys[0]]
-    nogo_param = params[nogo_keys[0]]
-    assert not torch.equal(go_param, nogo_param), "W_go and W_nogo should be separate parameters"
+    assert hasattr(net, "W_out"), "Expected net to have W_out parameter"
+    assert net.W_out.shape == (cfg.n_actions, cfg.n_hab)
 
 
 # --- CTRNN update tests ---

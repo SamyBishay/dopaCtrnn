@@ -16,7 +16,7 @@ DA can additionally modulate effective integration tau (cfg.da_tau=True):
   slow/deepen units lengthen with DA (stronger maintenance — Naudé deepen).
 Emits action logits, a scalar DA-request, and value.
 
-Habitual (DLS): CTRNN, opponent Go/NoGo readouts (policy = Go - NoGo).
+Habitual (DLS): CTRNN, single linear readout (policy logits).
 
 Policy mixing: w_GD = sigmoid(alpha * DA + bias).
 combined = w_GD * mot * pi_GD + (1 - w_GD) * pi_H
@@ -157,7 +157,7 @@ class GDNet(nn.Module):
 
 
 class HabNet(nn.Module):
-    """Habitual CTRNN, opponent Go/NoGo readouts (policy = Go - NoGo).
+    """Habitual CTRNN with single linear policy readout.
 
     Recurrent weight can be full-rank (default) or low-rank. When
     cfg.hab_rank > 0 the recurrent matrix is parameterised as
@@ -181,8 +181,7 @@ class HabNet(nn.Module):
             self.W = nn.Parameter(torch.randn(n, n) * (0.9 / n ** 0.5))
         self.b     = nn.Parameter(torch.zeros(n))
         self.tau_p = nn.Parameter(_mixed_tau_init(n, cfg))
-        self.W_go  = nn.Parameter(torch.randn(a, n) * 0.1)
-        self.W_nogo= nn.Parameter(torch.randn(a, n) * 0.1)
+        self.W_out = nn.Parameter(torch.randn(a, n) * 0.1)
 
     def _rec(self, r):
         """Recurrent contribution r @ W.T for either parameterisation."""
@@ -207,7 +206,7 @@ class HabNet(nn.Module):
         if lesion:
             h = torch.zeros_like(h)
         r_out = torch.tanh(h)
-        pi = r_out @ self.W_go.T - r_out @ self.W_nogo.T          # [B, n_actions]
+        pi = r_out @ self.W_out.T                                   # [B, n_actions]
         return pi, h
 
 
