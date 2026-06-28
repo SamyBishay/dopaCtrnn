@@ -8,13 +8,11 @@ per seed, this tool walks the richer batch_runner.py layout --
   results/<exp>/batch_summary_<ts>_<commit>.json
 
 -- aggregates each arm's seeds (aggregate_arm.py), and embeds the per-arm
-aggregates + the batch_summary gate-clear status into a copy of
-batch_visualiser.html: one page that shows every arm of the experiment next
-to each other, with seed variance visible, plus the gate-not-cleared banner
-from batch_runner.py's chance-guard. It also builds (by shelling out to
-build_viz.py) one per-seed viz_seed<N>.html per seed and links to them, so
-the batch view can drill down into the existing trial-player/H2/H5 page
-without rebuilding any of that UI.
+aggregates + the per-seed data (trajectories + results) + the batch_summary
+gate-clear status into a copy of batch_visualiser.html: one page that shows
+every arm of the experiment next to each other, with seed variance visible,
+plus an inline maze player / per-seed handoff & H5 panels driven entirely
+from the embedded data (no separate per-seed HTML files are produced).
 
 Usage:
   python build_batch_viz.py <exp_dir> [--out <out_dir>] [--run <ts>_<commit>]
@@ -87,11 +85,49 @@ def _latest_batch_summary(exp_dir: Path, pin: str | None):
     return json.loads(summaries[-1].read_text())
 
 
+def _load_seed_data(run_dir: Path, agg: dict):
+    """Per-seed data (trajectories + full results + wall time) for the inline
+    maze player / per-seed handoff / per-seed H5 panels. This replaces the old
+    approach of shelling out to build_viz.py to build a separate HTML per seed;
+    everything is now embedded into the single batch page instead."""
+    seed_data = []
+    for seed_dir_name in agg["seed_dirs"]:
+        seed_dir = run_dir / seed_dir_name
+
+        traj_path = seed_dir / "trajectories.json"
+        traj = json.loads(traj_path.read_text()) if traj_path.exists() else None
+
+        results_path = seed_dir / "results.json"
+        results_full = None
+        if results_path.exists():
+            results_full = json.loads(results_path.read_text())
+            # keep logs -- needed for the per-seed handoff chart (logs_agg only
+            # carries the cross-seed aggregate, not each seed's own series).
+
+        # Estimate wall time from log mtime (the seed_<N>_run.log file is
+        # created at launch; results.json is written at the end of the run).
+        log_path = run_dir / f"{seed_dir_name}_run.log"
+        wall_s = None
+        if log_path.exists() and results_path.exists():
+            try:
+                wall_s = results_path.stat().st_mtime - log_path.stat().st_mtime
+                if wall_s < 0:
+                    wall_s = None
+            except Exception:
+                wall_s = None
+
+        seed_data.append({
+            "seed_dir": seed_dir_name,
+            "traj": traj,
+            "results": results_full,
+            "wall_s": wall_s,
+        })
+    return seed_data
+
+
 def build(exp_dir: Path, out_dir: Path, pin: str | None):
     exp_name = exp_dir.name
     out_dir.mkdir(parents=True, exist_ok=True)
-    seed_viz_dir = out_dir / "seeds"
-    seed_viz_dir.mkdir(parents=True, exist_ok=True)
     out_dir_resolved = out_dir.resolve()
 
     # Exclude the output dir itself (commonly <exp_dir>/viz, a sibling of the
@@ -117,19 +153,12 @@ def build(exp_dir: Path, out_dir: Path, pin: str | None):
             continue
         run_used[arm_dir.name] = run_dir.name
 
-        # Build/link the per-seed drill-down viewers for this arm's seeds,
-        # reusing build_viz.py rather than re-implementing the trial player.
-        seed_links = {}
-        for seed_dir_name in agg["seed_dirs"]:
-            seed_dir = run_dir / seed_dir_name
-            out_html = seed_viz_dir / f"viz_{arm_dir.name}_{seed_dir_name}.html"
-            built = _build_one_seed_viz(seed_dir, out_html)
-            if built:
-                seed_links[seed_dir_name] = f"seeds/{out_html.name}"
-        agg["seed_links"] = seed_links
+        # Embed per-seed data (trajectories + results + wall time) so the inline
+        # maze player / per-seed panels render straight from this one page.
+        agg["seed_data"] = _load_seed_data(run_dir, agg)
+        agg["seed_links"] = {}
         arms[arm_dir.name] = agg
-        print(f"  arm {arm_dir.name}: {agg['n_seeds']} seed(s) from {run_dir.name}, "
-              f"{len(seed_links)} drill-down page(s)")
+        print(f"  arm {arm_dir.name}: {agg['n_seeds']} seed(s) from {run_dir.name}")
 
     if not arms:
         sys.exit(f"no usable arm data found under {exp_dir}")
@@ -155,17 +184,6 @@ def build(exp_dir: Path, out_dir: Path, pin: str | None):
     out_path = out_dir / f"batch_{exp_name}.html"
     out_path.write_text(html)
     return out_path
-
-
-def _build_one_seed_viz(seed_dir: Path, out_path: Path) -> bool:
-    """Shell out to build_viz.py's build_one() for a single seed dir."""
-    sys.path.insert(0, str(HERE))
-    import build_viz  # noqa: E402
-    try:
-        return build_viz.build_one(seed_dir, out_path)
-    except Exception as e:
-        print(f"    warning: could not build drill-down viz for {seed_dir}: {e}")
-        return False
 
 
 def main():

@@ -124,7 +124,7 @@ class TMazeVecEnv:
         self.cfg = cfg
         self.rng = rng
         self.B   = int(batch_size)
-        self.current_delay = cfg.delay
+        self.current_delay = getattr(cfg, "delay_start", cfg.delay)
         self.reward_scale  = 1.0
 
         self.g = _geometry(getattr(cfg, "len_edge", 5),
@@ -141,14 +141,19 @@ class TMazeVecEnv:
         self._arm_row = self.g["arm_row"]
         # Pushback path: arm end → junction (cx-1 horizontal steps) → start (h-3 vertical steps)
         self._pushback_len = (self.g["cx"] - 1) + (self.h - 3)
-        assert cfg.delay >= self._pushback_len, (
-            f"delay={cfg.delay} must be >= pushback_len={self._pushback_len} "
+        delay_start = getattr(cfg, "delay_start", cfg.delay)
+        assert delay_start >= self._pushback_len, (
+            f"delay_start={delay_start} must be >= pushback_len={self._pushback_len} "
             f"for grid len_edge={cfg.len_edge}, difficulty={cfg.difficulty}")
+        assert cfg.delay >= delay_start, \
+            f"delay ceiling={cfg.delay} must be >= delay_start={delay_start}"
         self.pos = None
         self.reset()
 
     def advance_delay(self):
-        pass  # delay is now fixed (cfg.delay); curriculum removed
+        """Increment current_delay by one step toward cfg.delay (curriculum ceiling)."""
+        step = max(1, (self.cfg.delay - getattr(self.cfg, "delay_start", self.cfg.delay)) // 8)
+        self.current_delay = min(self.cfg.delay, self.current_delay + step)
 
     def reset(self, mask=None):
         """Reset all envs, or only those where mask is True."""

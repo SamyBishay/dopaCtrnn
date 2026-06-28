@@ -17,9 +17,12 @@ class Config:
     sig_val: float     = 1.0           # multiplier kept for backward-compat; magnitude now computed
                                       # from grid geometry in environment.py (1/(w-1) for sample,
                                       # (1/(w-1))*0.1 for choice-onset)
-    delay: int         = 40           # fixed delay steps (replaces curriculum delay_start/delay_max);
-                                      # must be >= pushback path length (6 steps for default grid)
-    max_episode_steps: int = 90       # with fixed delay=40 + pushback=6 + ~15 nav steps, 90 gives headroom
+    delay: int         = 40           # curriculum ceiling (max delay); must be >= pushback path
+                                      # length (6 steps for default grid)
+    delay_start: int   = 8            # curriculum start delay (>= pushback_len=6 for default grid)
+    delay_advance_acc: float = 0.75   # hab-solo accuracy threshold to advance delay one step
+    delay_advance_evals: int = 2      # consecutive evals at threshold before advancing
+    max_episode_steps: int = 90       # delay=40 + pushback=6 + ~15 nav steps: 90 gives headroom
     test_reward: float = 1.0          # reward for correct (non-match) choice
     step_cost: float   = 0.02         # supervisor STEP_RWD=-0.02; matches
     wait_cost: float   = 0.02         # per WAIT action — same as step_cost so WAIT isn't cheaper

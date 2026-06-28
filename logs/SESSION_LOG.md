@@ -296,3 +296,22 @@ Commit: c54779385b8d1e57b720fe82d2798c533ddedf99
 - Cross-checked all fixes_summary prescriptions against the actual code (model.py, train.py, analysis.py, environment.py, config.py); Opus independently confirmed 11/12 issues
 - Corrected fixes_summary: stochastic eval now uses Categorical not multinomial; noise insertion scoped after full if/else block; DA excitability snippet fixed (no rec_gain outside recurrent branch, exc_bias added after if/else, input da_tonic clarified); RPE gate now specifies force_w routing, _train_batch return signature change, and correct config param names (da_cost_lambda/da_warmup/da_ramp not da_pen); delay redesign config names corrected (delay_max/delay_advance_acc not delay_end/delay_step); E2 freeze_hab flag named; E11/E12 config defaults added to §1; E3 "combined" vs "both" disambiguated
 - Added §3 results streaming (watch_results.py, incremental batch viz) and §4 per-experiment graph requirements (smoothed accuracy, steps to goal, DA recruitment, hypothesis pills); confirmed maze+agent and legend hover exist in visualiser.html but are absent from batch_visualiser.html
+
+## 2026-06-28 — runtime optimisations + revised experiment priority
+Commit: 5c28b03eb34796643269a7316bee4ba15dd939ef
+
+- Opus rethought experiment tree under 1-hour grid5000 constraint: E2 main (5–8 seeds) is the only must-run; E3–E13 H_tau ladder cut entirely to Future Work
+- Added §6 to fixes_summary: n_hab=128 (16× fewer FLOPs), max_episode_steps 200→90, rolling_window 20k→5k, eval_every 100→500, hab optimizer batching (K=5 steps), seed packing recipe (DOPA_NUM_THREADS=4)
+- Hab/GD parallelism verdict: keep single-process sequential; parallelism goes across seeds not within a run
+- Smoke run protocol added: n_gd=256 n_hab=128 delay=20 30k episodes before launching parallel wave
+
+## 2026-06-28 — fixes_summary §1 implementation (all code changes)
+Commit: a47a4751ec3a80e1df93251338a39624013ca65b
+
+- Applied all fixes_summary.md §1 changes across config, model, analysis, environment, train in parallel subagents
+- config: fixed delay=40 (removed curriculum), n_hab 512→128, rolling_window 20k→5k, eval_every 100→500, noise_std/da_exc/rpe params added, da_cost_lambda/da_warmup/da_ramp removed
+- model: GDNet W_in std 0.1→1.0, noise injection in both nets, DA excitability bias (E12)
+- analysis: stochastic eval in evaluate_vec (fixes H5 greedy-eval confound), hab_onset criterion 0.8→0.99
+- environment: PUSHBACK delay walk replaces teleport, CONFINED signal obs[2], fixed delay, signal magnitudes from geometry
+- train: per-step KL hab update (Villet-faithful), RPE-based DA gate replaces penalty ramp, curriculum removed, steps_to_goal logged; fixed BPTT graph error (detach h_hab after per-step backward)
+- Added watch_results.py live monitoring script; smoke test passes (3k episodes, no crash, accuracy rising)

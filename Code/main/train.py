@@ -10,6 +10,7 @@ over the summed losses from all B completed episodes.
 """
 import copy
 import os
+import time
 from collections import deque
 import numpy as np
 import torch
@@ -250,6 +251,7 @@ def _record_episode(model, env, cfg):
 
 
 def train(cfg, verbose=True):
+    _t0 = time.time()
     torch.manual_seed(cfg.seed)
     rng = np.random.default_rng(cfg.seed)
     B   = cfg.batch_size
@@ -272,6 +274,7 @@ def train(cfg, verbose=True):
     start_it = 0
     ret_norm = RunningNorm(cfg.ret_norm_window)
     hab_solo_acc = 0.0   # last evaluated habitual-solo accuracy (for APE-decay)
+    delay_advance_count = 0  # consecutive evals at delay_advance_acc threshold
     # RPE-based DA gate state
     rpe_mu  = 0.0
     rpe_var = 1e-6
@@ -381,10 +384,24 @@ def train(cfg, verbose=True):
             logs["rolling_acc"].append(r_acc)
             logs["steps_to_goal"].append(mean_steps)
 
-            # Fixed-delay eval (Villet comparison): delay is fixed (cfg.delay), so
-            # the curriculum is always at ceiling — checkpoints capture from the
-            # first eval window.
-            at_ceiling = True  # delay is fixed (cfg.delay); no curriculum
+            at_ceiling = venv.current_delay >= cfg.delay
+
+            # Curriculum advance: when hab-solo exceeds threshold for delay_advance_evals
+            # consecutive evals, step the delay toward cfg.delay (ceiling).
+            if not at_ceiling:
+                if hab["acc"] >= cfg.delay_advance_acc:
+                    delay_advance_count += 1
+                    if delay_advance_count >= cfg.delay_advance_evals:
+                        venv.advance_delay()
+                        eval_env.advance_delay()
+                        delay_advance_count = 0
+                        if verbose:
+                            print(f"  -> delay advanced to {venv.current_delay}", flush=True)
+                else:
+                    delay_advance_count = 0
+                at_ceiling = venv.current_delay >= cfg.delay
+
+            # Fixed-delay eval only once at ceiling (Villet comparison pinned to cfg.delay).
             if at_ceiling:
                 fd = evaluate_vec(model, eval_env, cfg, cfg.eval_trials,
                                   fixed_delay=cfg.fixed_eval_delay, seed=ev_seed)
@@ -459,4 +476,4 @@ def train(cfg, verbose=True):
                       "H3/H4 learning-phase results may be invalid.")
         ckpt_learn = first_state
 
-    return model, logs, ckpt_learn, ckpt_maint, train_trajs, venv.current_delay
+    return model, logs, ckpt_learn, ckpt_maint, train_trajs, venv.current_delay, time.time() - _t0

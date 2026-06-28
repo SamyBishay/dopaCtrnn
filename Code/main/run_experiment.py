@@ -144,6 +144,7 @@ def main():
         cfg.ckpt_path = os.path.join(outdir, "train_state.pt")
     eval_env = TMazeFreeNav(cfg, np.random.default_rng(args.seed + 9_999))
 
+    train_wall_s = None
     if args.untrained:
         torch.manual_seed(args.seed)
         model = DualSystemModel(cfg).to(cfg.device)
@@ -152,12 +153,13 @@ def main():
         train_trajs = []
         eval_env.current_delay = cfg.delay   # compare H7 at the fixed training delay
     else:
-        model, logs, ckpt_learn, ckpt_maint, train_trajs, final_delay = train(cfg)
+        model, logs, ckpt_learn, ckpt_maint, train_trajs, final_delay, train_wall_s = train(cfg)
         eval_env.current_delay = final_delay   # eval at the delay reached during training
         torch.save(ckpt_learn, os.path.join(outdir, "ckpt_learning.pt"))
         torch.save(ckpt_maint, os.path.join(outdir, "ckpt_maintenance.pt"))
 
-    results = {"seed": args.seed, "untrained": args.untrained, "config": cfg.to_dict()}
+    results = {"seed": args.seed, "untrained": args.untrained,
+               "train_wall_s": train_wall_s, "config": cfg.to_dict()}
 
     model.load_state_dict(ckpt_maint)
     results["h1"] = A.h1_learning(model, eval_env, cfg)

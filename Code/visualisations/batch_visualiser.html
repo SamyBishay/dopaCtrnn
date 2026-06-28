@@ -8,13 +8,14 @@
   :root{
     --bg:#0e1117; --panel:#161b22; --panel2:#1c2230; --ink:#e6edf3; --mut:#8b949e;
     --line:#30363d; --accent:#58a6ff; --gd:#d2691e; --hab:#3fb950; --warn:#f85149;
+    --presample:#6e7681; --sample:#58a6ff; --delay:#bc8cff; --choice:#f0a35e;
     --ok:#3fb950; --bad:#f85149; --warnamber:#d29922;
     --r:10px; --mono:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
     --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.5}
-  header{padding:18px 22px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  header{padding:18px 22px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:14px;flex-wrap:wrap}
   header h1{font-size:17px;margin:0;font-weight:650}
   header .meta{color:var(--mut);font-family:var(--mono);font-size:12px}
   main{max-width:1280px;margin:0 auto;padding:22px;display:flex;flex-direction:column;gap:22px}
@@ -26,10 +27,16 @@
   svg{display:block;width:100%;height:auto;font-family:var(--mono);font-size:11px}
   .legend{display:flex;gap:18px;flex-wrap:wrap;margin-top:8px;font-family:var(--mono);font-size:12px}
   .legend span{display:inline-flex;align-items:center;gap:6px;color:var(--mut)}
+  .legend [data-arm],.legend [data-series]{cursor:pointer;transition:color .12s}
+  .legend [data-arm]:hover,.legend [data-series]:hover{color:var(--ink)}
   .swatch{width:14px;height:3px;border-radius:2px;display:inline-block}
   .dot{width:9px;height:9px;border-radius:50%;display:inline-block}
   button,a.btn{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:7px 12px;cursor:pointer;font-size:13px;font-family:var(--sans);text-decoration:none;display:inline-block}
   button:hover,a.btn:hover{border-color:var(--accent)}
+  button:disabled{opacity:.4;cursor:default}
+  button.primary{background:var(--accent);color:#06131f;border-color:var(--accent);font-weight:600}
+  input[type=range]{flex:1;min-width:160px;accent-color:var(--accent)}
+  select{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:7px 10px;font-size:13px}
   .pill{font-family:var(--mono);font-size:12px;padding:3px 9px;border-radius:20px;border:1px solid var(--line)}
   .pill.ok{color:var(--ok);border-color:var(--ok)}
   .pill.bad{color:var(--bad);border-color:var(--bad)}
@@ -38,10 +45,12 @@
   .kv{display:grid;grid-template-columns:auto 1fr;gap:5px 14px;font-family:var(--mono);font-size:12.5px}
   .kv dt{color:var(--mut)}
   .kv dd{margin:0;text-align:right}
+  .kv2{display:grid;grid-template-columns:auto 1fr auto 1fr;gap:5px 14px;font-family:var(--mono);font-size:12.5px}
+  .kv2 dt{color:var(--mut)}
+  .kv2 dd{margin:0;text-align:right}
   .empty{color:var(--mut);text-align:center;padding:40px;font-style:italic}
   code{font-family:var(--mono);background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
   .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
-  .gridArms{display:grid;gap:14px}
   .note{font-size:12px;color:var(--mut);line-height:1.5}
   .barlabel{font-family:var(--mono);font-size:11px;fill:var(--mut)}
   .gatebanner{background:#3a0d0d;border:2px solid var(--bad);border-radius:var(--r);padding:18px 22px;
@@ -50,28 +59,57 @@
   .armtable{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12.5px}
   .armtable th,.armtable td{padding:6px 10px;border-bottom:1px solid var(--line);text-align:left}
   .armtable th{color:var(--mut);font-weight:600;text-transform:uppercase;font-size:10.5px;letter-spacing:.04em}
-  .seedlinks{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
-  .seedlinks a{font-size:11px;padding:3px 9px}
-  .armcard{border-left:3px solid var(--accent)}
-  .armcard h3{margin:0 0 8px;font-size:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-  .armcard h3 .armname{font-family:var(--mono);color:var(--accent)}
-  .config-diff{font-family:var(--mono);font-size:11.5px;color:var(--mut);background:var(--panel2);
-    border-radius:6px;padding:8px 10px;margin-top:8px;overflow-x:auto;white-space:pre}
+  /* arm tabs + seed selector in header */
+  .armtab{background:none;border:none;border-bottom:2px solid transparent;border-radius:0;padding:8px 14px;color:var(--mut);cursor:pointer;font-size:13px}
+  .armtab.active{color:var(--ink);border-bottom-color:var(--accent)}
+  .armtabs{display:flex;gap:2px;flex-wrap:wrap}
+  /* maze player */
+  .player{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start}
+  .mazebox{flex:0 0 auto}
+  .sidebar{flex:1;min-width:260px;display:flex;flex-direction:column;gap:14px}
+  .controls{display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap}
+  .strip{height:46px;width:100%;border:1px solid var(--line);border-radius:7px;background:var(--panel2)}
+  .phasekey{display:flex;gap:14px;flex-wrap:wrap;font-family:var(--mono);font-size:11.5px;margin-top:6px}
+  .phasekey span{display:inline-flex;align-items:center;gap:5px;color:var(--mut)}
+  .driverbar{display:flex;align-items:center;gap:10px;margin-top:10px;font-family:var(--mono);font-size:12px;color:var(--mut)}
+  .driverbar .track{flex:1;height:12px;border-radius:6px;border:1px solid var(--line);
+    background:linear-gradient(90deg,var(--hab),var(--gd));position:relative}
+  .driverbar .track .mk{position:absolute;top:-3px;width:2px;height:18px;background:var(--ink)}
+  .tabbtn{background:none;border:none;border-bottom:2px solid transparent;border-radius:0;padding:6px 4px;color:var(--mut);font-size:13px;cursor:pointer}
+  .tabbtn.active{color:var(--ink);border-bottom-color:var(--accent)}
+  .h5card{border-left:3px solid var(--warnamber)}
+  .h5verdict{font-size:13px;line-height:1.55;margin:0 0 4px}
+  details{border:1px solid var(--line);border-radius:var(--r);background:var(--panel)}
+  details summary{padding:14px 18px;cursor:pointer;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);font-weight:650}
+  details .body{padding:0 18px 18px}
+  .seedhdr{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+  .seedhdr h2{margin:0}
+  .sectiondiv{border:none;border-top:1px solid var(--line);margin:6px 0 0}
+  .sectionlabel{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);font-weight:650;margin-top:6px}
 </style>
 </head>
 <body>
 <header>
-  <h1>Dual-system T-maze — batch comparison</h1>
+  <h1>Dual-system T-maze — batch</h1>
   <span class="meta" id="hdrmeta">no batch data loaded</span>
   <span class="verdicts" id="gateverdict"></span>
+  <span style="flex:1"></span>
+  <div class="armtabs" id="armtabs"></div>
+  <select id="seedsel" title="select seed"></select>
 </header>
 
 <!-- EMBEDDED_BATCH_DATA: build_batch_viz.py replaces the object below with
-     {exp, arms, batch_summary, run_used} so this file is fully self-contained,
-     same design as visualiser.html / build_viz.py. -->
+     {exp, arms, batch_summary, run_used} (each arm carries logs_agg, h1..h6,
+     and seed_data[] = per-seed {traj, results, wall_s}) so this file is fully
+     self-contained, same design as visualiser.html / build_viz.py. -->
 <script id="embedded-batch-data" type="application/json">{}</script>
 
 <main>
+  <div class="card" id="archcard" style="display:none">
+    <h2>Architecture &amp; configuration <span class="sub" id="archsub"></span></h2>
+    <dl class="kv2" id="archkv"></dl>
+  </div>
+
   <div id="gatebox"></div>
 
   <div class="card" id="overviewcard" style="display:none">
@@ -80,12 +118,24 @@
   </div>
 
   <div class="card" id="h2card" style="display:none">
-    <h2>H2 — handoff timing, arm vs. arm <span class="sub">mean accuracy / w_GD across each arm's seeds; shaded band = ±1 sd across seeds</span></h2>
+    <h2>H2 — handoff timing, arm vs. arm <span class="sub">mean accuracy / w_GD across each arm's seeds; shaded band = ±1 sd across seeds — hover a legend item to isolate an arm</span></h2>
     <div class="chartwrap">
       <svg id="h2chart" viewBox="0 0 900 360" preserveAspectRatio="xMidYMid meet"></svg>
     </div>
     <div class="legend" id="h2legend"></div>
     <p class="hint" id="h2read"></p>
+  </div>
+
+  <div class="card" id="h3card" style="display:none">
+    <h2>H3 — devaluation dissociation, arm vs. arm <span class="sub">learning-phase drop should be large (value-sensitive); maintenance-phase drop should be ~0 (value-free habit)</span></h2>
+    <div class="chartwrap">
+      <svg id="h3chart" viewBox="0 0 900 300" preserveAspectRatio="xMidYMid meet"></svg>
+    </div>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--accent)"></span>learning-phase drop</span>
+      <span><span class="swatch" style="background:var(--gd)"></span>maintenance-phase drop</span>
+    </div>
+    <p class="hint" id="h3read"></p>
   </div>
 
   <div class="card" id="h5card" style="display:none">
@@ -102,19 +152,102 @@
     <p class="hint" id="h5read"></p>
   </div>
 
-  <div class="card" id="h3card" style="display:none">
-    <h2>H3 — devaluation dissociation, arm vs. arm <span class="sub">learning-phase drop should be large (value-sensitive); maintenance-phase drop should be ~0 (value-free habit)</span></h2>
-    <div class="chartwrap">
-      <svg id="h3chart" viewBox="0 0 900 300" preserveAspectRatio="xMidYMid meet"></svg>
-    </div>
-    <div class="legend">
-      <span><span class="swatch" style="background:var(--accent)"></span>learning-phase drop</span>
-      <span><span class="swatch" style="background:var(--gd)"></span>maintenance-phase drop</span>
-    </div>
-    <p class="hint" id="h3read"></p>
-  </div>
+  <hr class="sectiondiv">
+  <div class="sectionlabel">Seed detail — drill into one seed of the active arm</div>
 
-  <div class="gridArms" id="armgrid"></div>
+  <div id="seeddetail">
+    <div class="card" id="seedverdicts" style="display:none">
+      <div class="seedhdr">
+        <h2 id="seedtitle">seed detail</h2>
+        <span class="verdicts" id="seedpills"></span>
+      </div>
+      <div class="grid2">
+        <dl class="kv" id="seedcfgkv"></dl>
+        <dl class="kv" id="seedhypkv"></dl>
+      </div>
+    </div>
+
+    <div class="card" id="seedhandoffcard" style="display:none;margin-top:22px">
+      <h2>H2 — the handoff (this seed) <span class="sub">lines EMA-smoothed (&alpha;=0.15), dots are raw combined-accuracy evals — click a dot to jump the maze player to that trial</span></h2>
+      <div class="chartwrap">
+        <svg id="seedhandoff" viewBox="0 0 900 340" preserveAspectRatio="xMidYMid meet"></svg>
+      </div>
+      <div class="legend">
+        <span data-series="hab"><span class="swatch" style="background:var(--hab)"></span>habitual-solo accuracy</span>
+        <span data-series="combined"><span class="swatch" style="background:var(--accent)"></span>combined accuracy</span>
+        <span data-series="gd"><span class="swatch" style="background:var(--gd);height:0;border-top:2px dashed var(--gd)"></span>goal-directed-solo</span>
+        <span data-series="wgd"><span class="swatch" style="background:var(--warnamber)"></span>w_GD (GD expression gain)</span>
+        <span data-series="da"><span class="swatch" style="background:var(--delay)"></span>DA-request</span>
+      </div>
+      <p class="hint" id="seedhandoffread"></p>
+    </div>
+
+    <div class="card" id="playercard" style="display:none;margin-top:22px">
+      <h2>Trial player <span class="sub">path tint from green (habitual) to orange (goal-directed) by w_GD</span></h2>
+      <div class="controls" style="margin-top:0;margin-bottom:14px">
+        <button class="tabbtn" id="tabTrain">training trials</button>
+        <button class="tabbtn active" id="tabEval">final-policy (eval) trials</button>
+        <span style="flex:1"></span>
+        <button id="trialPrev" title="previous trial">&#9664;</button>
+        <input type="range" id="trialsel" min="0" max="0" value="0" style="min-width:140px">
+        <button id="trialNext" title="next trial">&#9654;</button>
+        <span class="pill" id="trialpill">trial 0/0</span>
+      </div>
+      <div class="player">
+        <div class="mazebox">
+          <svg id="maze" viewBox="0 0 360 360" width="360" height="360"></svg>
+          <div class="controls">
+            <button id="btnPlay" class="primary">&#9654; play</button>
+            <button id="btnStep">step &#9656;</button>
+            <input type="range" id="scrub" min="0" max="0" value="0">
+            <span class="pill" id="stepcount">0 / 0</span>
+          </div>
+          <svg id="wstrip" class="strip" viewBox="0 0 360 46" preserveAspectRatio="none"></svg>
+          <div class="phasekey">
+            <span><span class="dot" style="background:var(--presample)"></span>pre-sample</span>
+            <span><span class="dot" style="background:var(--sample)"></span>sample</span>
+            <span><span class="dot" style="background:var(--delay)"></span>delay</span>
+            <span><span class="dot" style="background:var(--choice)"></span>choice</span>
+          </div>
+          <div class="driverbar">
+            <span style="color:var(--hab)">habitual</span>
+            <span class="track"><span class="mk" id="drivermk" style="left:0%"></span></span>
+            <span style="color:var(--gd)">goal-directed</span>
+          </div>
+        </div>
+        <div class="sidebar">
+          <div class="card" style="padding:14px"><dl class="kv" id="trialkv"></dl></div>
+          <div class="card" style="padding:14px"><dl class="kv" id="stepkv"></dl></div>
+          <p class="hint" id="rulenote"></p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card h5card" id="seedh5card" style="display:none;margin-top:22px">
+      <h2>H5 — reactivation after silencing the habitual system (this seed) <span class="sub">reported honestly, not rounded up</span></h2>
+      <div class="grid2">
+        <div>
+          <svg id="seedh5chart" viewBox="0 0 360 180" preserveAspectRatio="xMidYMid meet"></svg>
+          <div class="legend" style="margin-top:4px">
+            <span><span class="swatch" style="background:var(--accent)"></span>intact</span>
+            <span><span class="swatch" style="background:var(--delay)"></span>habitual silenced</span>
+          </div>
+        </div>
+        <div>
+          <p class="h5verdict" id="seedh5verdict"></p>
+          <p class="note" id="seedh5note"></p>
+          <p class="note" id="seedh5clamp" style="margin-top:8px"></p>
+        </div>
+      </div>
+    </div>
+
+    <details id="seedsupportcard" style="display:none;margin-top:22px">
+      <summary>Supporting evidence (this seed) — H1 competence · H3 devaluation · H4 lesions · H6 attractor</summary>
+      <div class="body">
+        <div class="grid2" id="seedsupportgrid" style="margin-top:14px"></div>
+      </div>
+    </details>
+  </div>
 
   <div class="empty" id="noState">Load a batch to begin.</div>
 </main>
@@ -122,10 +255,22 @@
 <script>
 "use strict";
 const B = { exp:null, arms:null, batch_summary:null, run_used:null, armOrder:[] };
+const S = {
+  armIdx:0, seedIdx:0,
+  // maze player state:
+  traj:null, results:null, mode:"eval", trial:0, step:0, playing:false, timer:null, geom:null
+};
 const SVGNS="http://www.w3.org/2000/svg";
 function el(tag,attrs){const e=document.createElementNS(SVGNS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);return e;}
 const ARM_COLORS=["#58a6ff","#d2691e","#3fb950","#bc8cff","#f0a35e","#f85149"];
 function armColor(i){return ARM_COLORS[i%ARM_COLORS.length];}
+
+const GD_RGB=[0xd2,0x69,0x1e], HAB_RGB=[0x3f,0xb9,0x50];
+function driverColor(w){
+  const t=Math.max(0,Math.min(1,w));
+  const c=GD_RGB.map((g,i)=>Math.round(HAB_RGB[i]+(g-HAB_RGB[i])*t));
+  return "rgb("+c[0]+","+c[1]+","+c[2]+")";
+}
 
 (function loadEmbedded(){
   let data;
@@ -139,21 +284,49 @@ function armColor(i){return ARM_COLORS[i%ARM_COLORS.length];}
 function fmt(v){ return (v==null||isNaN(v))? "—" : (+v).toFixed(3); }
 function fmt2(v){ return (v==null||isNaN(v))? "—" : (+v).toFixed(2); }
 function msFmt(ms){ if(!ms) return "—"; const [m,s]=ms; return m==null? "—" : (m.toFixed(3)+" ± "+s.toFixed(3)); }
+function mean(a){return a&&a.length?a.reduce((s,x)=>s+x,0)/a.length:0;}
 
+// ── boot ────────────────────────────────────────────────────────────────────
 function boot(){
   document.getElementById("noState").style.display="none";
   const meta = "exp "+B.exp+" · "+B.armOrder.length+" arm(s): "+B.armOrder.join(", ");
   document.getElementById("hdrmeta").textContent = meta;
 
+  renderArchPanel();
   renderGate();
   renderOverview();
+  renderArmTabs();
   renderH2();
-  renderH5();
   renderH3();
-  renderArmCards();
+  renderH5();
+  selectArm(0);
 }
 
-// ----------------------------------------------------------------- gate banner
+// ── architecture panel ──────────────────────────────────────────────────────
+function renderArchPanel(){
+  const arm = B.arms[B.armOrder[S.armIdx]];
+  if(!arm){ return; }
+  const c = arm.config || {};
+  document.getElementById("archcard").style.display="";
+  document.getElementById("archsub").textContent =
+    "arm "+arm.arm+" · "+arm.n_seeds+" seed(s)";
+  // mean wall time across this arm's seeds
+  const walls=(arm.seed_data||[]).map(sd=>sd&&sd.wall_s).filter(v=>v!=null&&isFinite(v));
+  const wallTxt = walls.length? (mean(walls)/60).toFixed(1)+" min/seed (mean of "+walls.length+")" : "—";
+  const epi = c.episodes!=null? c.episodes.toLocaleString() : "—";
+  const rows = [
+    ["GDNet", (c.n_gd!=null?c.n_gd:"—")+" neurons", "HabNet", (c.n_hab!=null?c.n_hab:"—")+" neurons"],
+    ["delay", (c.delay!=null?c.delay+" steps":"—"), "max episode", (c.max_episode_steps!=null?c.max_episode_steps+" steps":"—")],
+    ["episodes", epi, "training", wallTxt],
+    ["DA gain", "base="+fmt2(c.gain_base)+" da="+fmt2(c.gain_da), "w_GD gate", "α="+fmt2(c.wgd_alpha)+" bias="+fmt2(c.wgd_bias)],
+    ["sig_val", fmt2(c.sig_val), "obs_dim", (c.obs_dim!=null?c.obs_dim:"—")+" gd / "+(c.obs_dim_hab!=null?c.obs_dim_hab:"—")+" hab"],
+  ];
+  let html="";
+  rows.forEach(r=>{ html+="<dt>"+r[0]+"</dt><dd>"+r[1]+"</dd><dt>"+r[2]+"</dt><dd>"+r[3]+"</dd>"; });
+  document.getElementById("archkv").innerHTML=html;
+}
+
+// ── gate banner ─────────────────────────────────────────────────────────────
 function renderGate(){
   const bs = B.batch_summary;
   const box = document.getElementById("gatebox");
@@ -183,7 +356,7 @@ function renderGate(){
   }
 }
 
-// ----------------------------------------------------------------- overview table
+// ── overview table ──────────────────────────────────────────────────────────
 function renderOverview(){
   document.getElementById("overviewcard").style.display="";
   const bs = B.batch_summary;
@@ -211,13 +384,552 @@ function renderOverview(){
   tbl.innerHTML = html;
 }
 
-// ----------------------------------------------------------------- H2 arm-vs-arm
+// ── arm tabs + seed selector ────────────────────────────────────────────────
+function renderArmTabs(){
+  const box=document.getElementById("armtabs"); box.innerHTML="";
+  B.armOrder.forEach((arm,i)=>{
+    const b=document.createElement("button");
+    b.className="armtab"+(i===S.armIdx?" active":"");
+    b.textContent=arm; b.dataset.armidx=i;
+    b.addEventListener("click",()=>selectArm(i));
+    box.appendChild(b);
+  });
+}
+
+function selectArm(idx){
+  S.armIdx=idx; S.seedIdx=0;
+  document.querySelectorAll("#armtabs .armtab").forEach((b,i)=>b.classList.toggle("active",i===idx));
+  renderArchPanel();
+  // rebuild seed dropdown for this arm
+  const arm=B.arms[B.armOrder[idx]];
+  const sel=document.getElementById("seedsel"); sel.innerHTML="";
+  (arm.seed_dirs||[]).forEach((sd,j)=>{
+    const accv=(arm.h1.accuracy||[])[j];
+    const opt=document.createElement("option");
+    opt.value=j; opt.textContent=sd+" · acc "+fmt(accv);
+    sel.appendChild(opt);
+  });
+  sel.value=0;
+  loadSeed(0);
+}
+document.getElementById("seedsel").addEventListener("change",e=>loadSeed(+e.target.value));
+
+function loadSeed(idx){
+  S.seedIdx=idx;
+  const armName=B.armOrder[S.armIdx];
+  const arm=B.arms[armName];
+  const seedData=(arm.seed_data||[])[idx]||{};
+  S.traj=seedData.traj||null;
+  S.results=seedData.results||null;
+  document.getElementById("seedsel").value=idx;
+
+  renderSeedVerdicts(arm, idx, seedData);
+
+  if(S.traj){
+    document.getElementById("playercard").style.display="";
+    S.geom=computeGeom(S.traj.maze);
+    setMode("eval",true);
+  } else {
+    document.getElementById("playercard").style.display="none";
+  }
+
+  if(S.results && S.results.logs){
+    document.getElementById("seedhandoffcard").style.display="";
+    drawSeedHandoff();
+  } else {
+    document.getElementById("seedhandoffcard").style.display="none";
+  }
+
+  renderSeedH5();
+  renderSeedSupport();
+}
+
+// ── 8a. seed verdicts + stats ───────────────────────────────────────────────
+function renderSeedVerdicts(arm, idx, seedData){
+  document.getElementById("seedverdicts").style.display="";
+  const r=S.results;
+  const seedDir=arm.seed_dirs[idx];
+  document.getElementById("seedtitle").textContent=arm.arm+" / "+seedDir;
+  // pills
+  const pbox=document.getElementById("seedpills"); pbox.innerHTML="";
+  const add=(label,state,title)=>{
+    const s=document.createElement("span"); s.className="pill "+state; s.textContent=label;
+    if(title)s.title=title; pbox.appendChild(s);
+  };
+  if(r){
+    if(r.h1)add("H1 "+(r.h1.pass?"✓":"✗"),r.h1.pass?"ok":"bad","competence: acc "+fmt(r.h1.accuracy));
+    if(r.h2)add("H2 "+(r.h2.pass?"✓":"✗"),r.h2.pass?"ok":"bad","handoff");
+    if(r.h3)add("H3 "+(r.h3.dissociation_pass?"✓":"✗"),r.h3.dissociation_pass?"ok":"bad","devaluation dissociation");
+    if(r.h4)add("H4","warn","lesion double-dissociation (see panel)");
+    if(r.h5){
+      const clean=r.h5.pass===true,recovered=(r.h5.acc_hab_silenced!=null&&r.h5.acc_hab_silenced>=0.65);
+      add("H5 "+(clean?"✓":recovered?"▲ partial":"✗"),clean?"ok":recovered?"warn":"bad","H5 reactivation");
+    }
+    if(r.h6)add("H6 "+(r.h6.pass?"✓":"✗"),r.h6.pass?"ok":"bad","delay attractor: decoder "+fmt(r.h6.decoder_acc));
+  } else {
+    add("results unavailable","warn");
+  }
+  // config kv
+  const c=(r&&r.config)||arm.config||{};
+  const wall=seedData.wall_s;
+  const wallTxt=(wall!=null&&isFinite(wall))?(wall/60).toFixed(1)+" min":"—";
+  document.getElementById("seedcfgkv").innerHTML=
+    "<dt>seed</dt><dd>"+((r&&r.seed!=null)?r.seed:(arm.seeds||[])[idx]??"—")+"</dd>"+
+    "<dt>n_gd / n_hab</dt><dd>"+(c.n_gd??"—")+" / "+(c.n_hab??"—")+"</dd>"+
+    "<dt>delay</dt><dd>"+(c.delay!=null?c.delay+" steps":"—")+"</dd>"+
+    "<dt>episodes</dt><dd>"+(c.episodes!=null?c.episodes.toLocaleString():"—")+"</dd>"+
+    "<dt>training time</dt><dd>"+wallTxt+"</dd>";
+  // hypothesis kv
+  let hk="";
+  if(r){
+    if(r.h1){
+      const ci=r.h1.ci95||[];
+      hk+="<dt>H1 accuracy</dt><dd>"+fmt(r.h1.accuracy)+" (k="+r.h1.k+"/"+r.h1.n+")</dd>"+
+          "<dt>H1 p / CI</dt><dd>"+(r.h1.p_value!=null?r.h1.p_value.toExponential(2):"—")+
+            (ci.length?" · ["+fmt2(ci[0])+","+fmt2(ci[1])+"]":"")+"</dd>";
+    }
+    if(r.h2){
+      hk+="<dt>H2 hab-onset ep</dt><dd>"+(r.h2.hab_onset_episode??"—")+"</dd>"+
+          "<dt>H2 w_GD-drop ep</dt><dd>"+(r.h2.wgd_drop_onset_episode??"—")+"</dd>";
+    }
+    if(r.h3){
+      const L=r.h3.learning||{},M=r.h3.maintenance||{};
+      hk+="<dt>H3 learning drop</dt><dd>"+fmt(L.drop)+"</dd>"+
+          "<dt>H3 maint. drop</dt><dd>"+fmt(M.drop)+"</dd>";
+    }
+    if(r.h5){
+      hk+="<dt>H5 DA-req Δ</dt><dd>"+(r.h5.da_request_delta!=null?r.h5.da_request_delta.toFixed(4):"—")+"</dd>"+
+          "<dt>H5 acc silenced</dt><dd>"+fmt(r.h5.acc_hab_silenced)+"</dd>";
+    }
+    if(r.h6){
+      hk+="<dt>H6 decoder acc</dt><dd>"+fmt(r.h6.decoder_acc)+"</dd>";
+    }
+  } else {
+    hk="<dt>—</dt><dd>no results.json for this seed</dd>";
+  }
+  document.getElementById("seedhypkv").innerHTML=hk;
+}
+
+// ── geometry (verbatim from visualiser.html) ────────────────────────────────
+function computeGeom(maze){
+  const cells=maze.passable;
+  let rmin=1e9,rmax=-1e9,cmin=1e9,cmax=-1e9;
+  cells.forEach(([r,c])=>{rmin=Math.min(rmin,r);rmax=Math.max(rmax,r);cmin=Math.min(cmin,c);cmax=Math.max(cmax,c);});
+  const nrows=rmax-rmin+1,ncols=cmax-cmin+1;
+  const VB=360,pad=18;
+  const cell=Math.floor(Math.min((VB-2*pad)/ncols,(VB-2*pad)/nrows));
+  const ox=(VB-ncols*cell)/2, oy=(VB-nrows*cell)/2;
+  const passSet=new Set(cells.map(([r,c])=>r+","+c));
+  const xy=(r,c)=>({x:ox+(c-cmin)*cell+cell/2, y:oy+(r-rmin)*cell+cell/2});
+  return {rmin,cmin,nrows,ncols,cell,ox,oy,VB,passSet,xy,
+          start:maze.start,junction:maze.junction,l_end:maze.l_end,r_end:maze.r_end};
+}
+
+// ── trial player (verbatim from visualiser.html) ────────────────────────────
+const PHASE_COLOR={pre_sample:"var(--presample)",sample:"var(--sample)",delay:"var(--delay)",choice:"var(--choice)"};
+function curTrial(){const arr=S.mode==="train"?S.traj.train:S.traj.eval;return arr&&arr[S.trial];}
+function phaseAt(t,i){if(t.phase&&i<t.phase.length)return t.phase[i];return null;}
+
+function drawMazeBase(){
+  const g=S.geom,svg=document.getElementById("maze");
+  svg.innerHTML="";
+  for(let r=g.rmin;r<g.rmin+g.nrows;r++)for(let c=g.cmin;c<g.cmin+g.ncols;c++){
+    if(!g.passSet.has(r+","+c)) continue;
+    const x=g.ox+(c-g.cmin)*g.cell, y=g.oy+(r-g.rmin)*g.cell;
+    svg.appendChild(el("rect",{x,y,width:g.cell,height:g.cell,rx:3,fill:"#222b38",stroke:"#2f3a4b","stroke-width":1}));
+  }
+  svg.appendChild(el("g",{id:"layer-blocked"}));
+  svg.appendChild(el("g",{id:"layer-target"}));
+  svg.appendChild(el("g",{id:"layer-path"}));
+  svg.appendChild(el("g",{id:"layer-agent"}));
+  const lab=(cell,txt,col)=>{const p=g.xy(cell[0],cell[1]);
+    const t=el("text",{x:p.x,y:p.y+3,"text-anchor":"middle",fill:col,"font-size":10,"font-weight":700});
+    t.textContent=txt;svg.appendChild(t);};
+  lab(g.start,"S","var(--mut)");lab(g.l_end,"L","var(--mut)");lab(g.r_end,"R","var(--mut)");
+}
+
+function renderStep(){
+  const t=curTrial();if(!t)return;
+  const g=S.geom;
+  const nSteps=t.w.length,nPos=t.pos.length;
+  S.step=Math.max(0,Math.min(S.step,nSteps));
+  const blockedEnd=t.blocked==="L"?g.l_end:g.r_end;
+  const Lblocked=t.blocked==="L";
+  const bl=document.getElementById("layer-blocked");bl.innerHTML="";
+  const armRow=g.junction[0],cx=g.junction[1];
+  for(let c=g.cmin;c<g.cmin+g.ncols;c++){
+    if(!g.passSet.has(armRow+","+c)) continue;
+    const onBlocked=Lblocked?c<cx:c>cx;
+    if(onBlocked&&c!==cx){
+      const x=g.ox+(c-g.cmin)*g.cell,y=g.oy+(armRow-g.rmin)*g.cell;
+      bl.appendChild(el("rect",{x,y,width:g.cell,height:g.cell,rx:3,
+        fill:"rgba(248,81,73,0.10)",stroke:"rgba(248,81,73,0.35)","stroke-width":1}));
+    }
+  }
+  const tg=document.getElementById("layer-target");tg.innerHTML="";
+  const tp=g.xy(blockedEnd[0],blockedEnd[1]);
+  tg.appendChild(el("circle",{cx:tp.x,cy:tp.y,r:g.cell*0.40,fill:"none",stroke:"var(--ok)","stroke-width":2,"stroke-dasharray":"3 3"}));
+  const pl=document.getElementById("layer-path");pl.innerHTML="";
+  const upto=Math.min(S.step,nPos-1);
+  for(let i=0;i<upto;i++){
+    const a=t.pos[i],b=t.pos[i+1];
+    const pa=g.xy(a[0],a[1]),pb=g.xy(b[0],b[1]);
+    const wv=i<t.w.length?t.w[i]:0;
+    pl.appendChild(el("line",{x1:pa.x,y1:pa.y,x2:pb.x,y2:pb.y,stroke:driverColor(wv),"stroke-width":3.4,"stroke-linecap":"round",opacity:0.9}));
+  }
+  const ag=document.getElementById("layer-agent");ag.innerHTML="";
+  const posIdx=Math.min(S.step,nPos-1);
+  const ap=g.xy(t.pos[posIdx][0],t.pos[posIdx][1]);
+  const wNow=t.w.length?t.w[Math.min(S.step,t.w.length-1)]:0;
+  ag.appendChild(el("circle",{cx:ap.x,cy:ap.y,r:g.cell*0.30,fill:driverColor(wNow),stroke:"#06131f","stroke-width":2}));
+  const scrub=document.getElementById("scrub");
+  scrub.max=nSteps;scrub.value=S.step;
+  document.getElementById("stepcount").textContent=S.step+" / "+nSteps;
+  document.getElementById("drivermk").style.left=(Math.max(0,Math.min(1,wNow))*100)+"%";
+  renderWStrip(t);renderStepKV(t);
+}
+
+function renderWStrip(t){
+  const svg=document.getElementById("wstrip");svg.innerHTML="";
+  const W=360,H=46,n=t.w.length;if(n===0)return;
+  const bw=W/n;
+  for(let i=0;i<n;i++){
+    const ph=phaseAt(t,i);
+    if(ph){svg.appendChild(el("rect",{x:i*bw,y:0,width:bw,height:H,fill:PHASE_COLOR[ph],opacity:0.12}));}
+    const wv=t.w[i];
+    svg.appendChild(el("rect",{x:i*bw,y:H-wv*H,width:Math.max(bw,0.6),height:wv*H,fill:driverColor(wv),opacity:0.95}));
+  }
+  const x=Math.min(S.step,n)*bw;
+  svg.appendChild(el("line",{x1:x,y1:0,x2:x,y2:H,stroke:"var(--ink)","stroke-width":1.5}));
+  const lab=el("text",{x:4,y:11,fill:"var(--mut)","font-size":9});lab.textContent="w_GD";svg.appendChild(lab);
+}
+
+const ACTION_NAMES=["N","S","E","W","WAIT"];
+function renderTrialKV(){
+  const t=curTrial();if(!t)return;
+  const kv=document.getElementById("trialkv");
+  const corr=t.correct;
+  const epi=(S.mode==="train"&&t.episode!=null)?"<dt>episode</dt><dd>"+t.episode+"</dd>":"";
+  kv.innerHTML=epi+
+    "<dt>blocked arm</dt><dd>"+t.blocked+" (sampled "+(t.blocked==="L"?"R":"L")+")</dd>"+
+    "<dt>correct target</dt><dd>"+t.blocked+" end</dd>"+
+    "<dt>outcome</dt><dd><span class='pill "+(corr?"ok":"bad")+"'>"+(corr?"CORRECT":"incorrect")+"</span></dd>"+
+    "<dt>length</dt><dd>"+t.w.length+" steps</dd>"+
+    "<dt>mean w_GD</dt><dd>"+mean(t.w).toFixed(3)+"</dd>";
+}
+function renderStepKV(t){
+  const kv=document.getElementById("stepkv");
+  const i=Math.min(S.step,t.w.length-1);
+  if(i<0){kv.innerHTML="";return;}
+  const ph=phaseAt(t,i);
+  const act=(t.a&&i<t.a.length)?ACTION_NAMES[t.a[i]]:"—";
+  const pos=t.pos[Math.min(S.step,t.pos.length-1)];
+  const wv=i<t.w.length?t.w[i]:null;
+  kv.innerHTML=
+    "<dt>step</dt><dd>"+S.step+"</dd>"+
+    "<dt>phase</dt><dd>"+(ph?ph:"(eval — n/a)")+"</dd>"+
+    "<dt>position</dt><dd>("+pos[0]+", "+pos[1]+")</dd>"+
+    "<dt>action</dt><dd>"+act+"</dd>"+
+    "<dt>w_GD</dt><dd>"+(wv!=null?wv.toFixed(3):"—")+"</dd>"+
+    "<dt>driving</dt><dd>"+(wv==null?"—":wv>=0.5?"goal-directed":"habitual")+"</dd>";
+}
+
+// ── per-seed handoff chart ──────────────────────────────────────────────────
+function drawSeedHandoff(){
+  const lg=S.results.logs,svg=document.getElementById("seedhandoff");
+  svg.innerHTML="";
+  const W=900,H=340,mL=52,mR=52,mT=18,mB=42;
+  const ep=lg.episode,n=ep.length;if(n===0)return;
+  const xmax=ep[n-1],xmin=ep[0];
+  const X=e=>mL+(W-mL-mR)*((e-xmin)/Math.max(1,(xmax-xmin)));
+  const Yacc=v=>(H-mB)-(H-mB-mT)*v;
+  const habOnset=firstCross(lg.hab_solo_acc,0.8,ep);
+  const wPeak=lg.w_gd?Math.max.apply(null,lg.w_gd):0;
+  const wDrop=firstBelow(lg.w_gd,0.5*wPeak,ep,true);
+  if(habOnset!=null&&wDrop!=null&&n>1){
+    const x0=X(Math.min(habOnset,wDrop)),x1=X(Math.max(habOnset,wDrop));
+    svg.appendChild(el("rect",{x:x0,y:mT,width:Math.max(0,x1-x0),height:H-mB-mT,fill:"var(--hab)",opacity:0.07}));
+  }
+  svg.appendChild(el("line",{x1:mL,y1:H-mB,x2:W-mR,y2:H-mB,stroke:"var(--line)"}));
+  svg.appendChild(el("line",{x1:mL,y1:mT,x2:mL,y2:H-mB,stroke:"var(--line)"}));
+  [0,0.25,0.5,0.75,1].forEach(v=>{
+    const y=Yacc(v);
+    svg.appendChild(el("line",{x1:mL,y1:y,x2:W-mR,y2:y,stroke:"var(--line)","stroke-dasharray":"2 4",opacity:0.5}));
+    const tx=el("text",{x:mL-8,y:y+3,"text-anchor":"end",fill:"var(--mut)"});tx.textContent=v.toFixed(2);svg.appendChild(tx);
+  });
+  // reference lines: 0.50 chance (amber), 0.80 criterion (green)
+  const y50=Yacc(0.50);
+  svg.appendChild(el("line",{x1:mL,y1:y50,x2:W-mR,y2:y50,stroke:"var(--warnamber)","stroke-dasharray":"5 5",opacity:0.7}));
+  const t50=el("text",{x:W-mR+4,y:y50+3,fill:"var(--warnamber)","font-size":9});t50.textContent="0.50 chance";svg.appendChild(t50);
+  const y80=Yacc(0.80);
+  svg.appendChild(el("line",{x1:mL,y1:y80,x2:W-mR,y2:y80,stroke:"var(--hab)","stroke-dasharray":"6 4",opacity:0.7}));
+  const t80=el("text",{x:W-mR+4,y:y80+3,fill:"var(--hab)","font-size":9});t80.textContent="0.80 criterion";svg.appendChild(t80);
+
+  const nt=Math.min(6,n);
+  for(let k=0;k<nt;k++){
+    const e=xmin+(xmax-xmin)*k/(nt-1||1),x=X(e);
+    const tx=el("text",{x,y:H-mB+16,"text-anchor":"middle",fill:"var(--mut)"});tx.textContent=Math.round(e);svg.appendChild(tx);
+  }
+  const xlab=el("text",{x:(mL+W-mR)/2,y:H-6,"text-anchor":"middle",fill:"var(--mut)"});xlab.textContent="training episode";svg.appendChild(xlab);
+  const vmark=(e,col,dash)=>{if(e==null)return;const x=X(e);
+    svg.appendChild(el("line",{x1:x,y1:mT,x2:x,y2:H-mB,stroke:col,"stroke-width":1.2,"stroke-dasharray":dash,opacity:0.8}));};
+  vmark(habOnset,"var(--hab)","4 3");
+  vmark(wDrop,"var(--warnamber)","2 3");
+  const series=(arr,col,dash)=>{
+    if(!arr)return null;let d="";
+    for(let i=0;i<n;i++){d+=(i?"L":"M")+X(ep[i])+","+Yacc(arr[i]);}
+    const p=el("path",{d,fill:"none",stroke:col,"stroke-width":2});
+    if(dash)p.setAttribute("stroke-dasharray",dash);
+    svg.appendChild(p);return p;
+  };
+  const ALPHA=0.15;
+  const habPath     =series(ema(lg.hab_solo_acc,ALPHA),"var(--hab)");
+  const combinedPath=series(ema(lg.combined_acc,ALPHA),"var(--accent)");
+  const gdPath      =series(ema(lg.gd_solo_acc,ALPHA),"var(--gd)","5 4");
+  const wgdPath     =series(ema(lg.w_gd,ALPHA),"var(--warnamber)");
+  const daPath      =series(ema(lg.da_recruit,ALPHA),"var(--delay)");
+  const dotsG=el("g",{});svg.appendChild(dotsG);
+  // training episodes available for click-to-jump
+  const trainEps=(S.traj&&S.traj.train?S.traj.train:[]).map(t=>t.episode);
+  for(let i=0;i<n;i++){
+    if(lg.combined_acc[i]==null)continue;
+    const cx=X(ep[i]),cy=Yacc(lg.combined_acc[i]);
+    const c=el("circle",{cx,cy,r:2.5,fill:"var(--accent)",opacity:0.3,style:"cursor:pointer"});
+    c.addEventListener("click",()=>{
+      if(!trainEps.length||!S.traj)return;
+      let best=0,bd=1e9;
+      trainEps.forEach((te,k)=>{const d=Math.abs(te-ep[i]);if(d<bd){bd=d;best=k;}});
+      setMode("train",false);selectTrial(best);
+      document.getElementById("playercard").scrollIntoView({behavior:"smooth",block:"start"});
+    });
+    const ttl=el("title");
+    ttl.textContent="ep "+ep[i]+" · combined "+fmt2(lg.combined_acc[i])+" · hab-solo "+fmt2(lg.hab_solo_acc[i])+" · w_GD "+fmt2(lg.w_gd[i]);
+    c.appendChild(ttl);dotsG.appendChild(c);
+  }
+  const pathMap={hab:habPath,combined:combinedPath,gd:gdPath,wgd:wgdPath,da:daPath};
+  document.querySelectorAll('#seedhandoffcard .legend [data-series]').forEach(item=>{
+    item.addEventListener('mouseenter',()=>{
+      const key=item.dataset.series;
+      Object.entries(pathMap).forEach(([k,p])=>{if(!p)return;p.setAttribute('stroke-width',k===key?'3.5':'1');p.setAttribute('opacity',k===key?'1':'0.18');});
+      dotsG.setAttribute('opacity',key==='combined'?'0.8':'0.08');
+    });
+    item.addEventListener('mouseleave',()=>{
+      Object.values(pathMap).forEach(p=>{if(!p)return;p.setAttribute('stroke-width','2');p.removeAttribute('opacity');});
+      dotsG.removeAttribute('opacity');
+    });
+  });
+  const h2=S.results&&S.results.h2;
+  const ho=h2?h2.hab_onset_episode:habOnset;
+  const wd=h2?h2.wgd_drop_onset_episode:wDrop;
+  let msg="";
+  if(ho!=null&&wd!=null){
+    msg="Habitual-solo crosses 0.80 at ep "+ho+"; w_GD falls below half its peak at ep "+wd+". "+
+        (wd>=ho?"Competence rises before goal-directed expression falls — consistent with a competence-locked handoff (H2).":
+                "w_GD drops before habitual competence — inconsistent with H2; inspect.");
+    if(h2)msg+=" "+(h2.pass?"H2 criterion: PASS.":"H2 criterion: not met.");
+  }else{msg="Handoff markers not reached in this run.";}
+  document.getElementById("seedhandoffread").textContent=msg;
+}
+function ema(arr,alpha){if(!arr||!arr.length)return arr;const out=[arr[0]];for(let i=1;i<arr.length;i++)out.push(alpha*arr[i]+(1-alpha)*out[i-1]);return out;}
+function firstCross(arr,thr,ep){if(!arr)return null;for(let i=0;i<arr.length;i++)if(arr[i]>=thr)return ep[i];return null;}
+function firstBelow(arr,thr,ep,afterPeak){if(!arr)return null;let started=!afterPeak,pk=-1;
+  for(let i=0;i<arr.length;i++){if(arr[i]>=pk)pk=arr[i];if(afterPeak&&arr[i]>=0.99*pk)started=true;if(started&&arr[i]<thr)return ep[i];}return null;}
+
+// ── per-seed H5 panel ───────────────────────────────────────────────────────
+function renderSeedH5(){
+  if(!S.results||!S.results.h5){document.getElementById("seedh5card").style.display="none";return;}
+  document.getElementById("seedh5card").style.display="";
+  const h5=S.results.h5;
+  const svg=document.getElementById("seedh5chart");svg.innerHTML="";
+  const W=360,H=180,mL=42,mR=14,mT=14,mB=40;
+  const di=h5.da_request_intact||0,ds=h5.da_request_hab_silenced||0;
+  const top=Math.max(0.2,di,ds)*1.25;
+  const Y=v=>(H-mB)-(H-mB-mT)*(v/top);
+  svg.appendChild(el("line",{x1:mL,y1:H-mB,x2:W-mR,y2:H-mB,stroke:"var(--line)"}));
+  svg.appendChild(el("line",{x1:mL,y1:mT,x2:mL,y2:H-mB,stroke:"var(--line)"}));
+  [0,top/2,top].forEach(v=>{const y=Y(v);
+    const tx=el("text",{x:mL-6,y:y+3,"text-anchor":"end",fill:"var(--mut)","font-size":9});tx.textContent=v.toFixed(2);svg.appendChild(tx);
+    svg.appendChild(el("line",{x1:mL,y1:y,x2:W-mR,y2:y,stroke:"var(--line)","stroke-dasharray":"2 4",opacity:0.4}));});
+  const bars=[["intact",di,"var(--accent)"],["hab silenced",ds,"var(--delay)"]];
+  const slot=(W-mR-mL)/bars.length,bw=slot*0.5;
+  bars.forEach((b,i)=>{
+    const x=mL+slot*i+(slot-bw)/2;
+    svg.appendChild(el("rect",{x,y:Y(b[1]),width:bw,height:(H-mB)-Y(b[1]),fill:b[2],opacity:0.9,rx:2}));
+    const tx=el("text",{x:x+bw/2,y:H-mB+14,"text-anchor":"middle",class:"barlabel"});tx.textContent=b[0];svg.appendChild(tx);
+    const vl=el("text",{x:x+bw/2,y:Y(b[1])-4,"text-anchor":"middle","font-size":9,fill:"var(--ink)"});vl.textContent=b[1].toFixed(3);svg.appendChild(vl);
+  });
+  const yl=el("text",{x:mL,y:mT-2,"text-anchor":"start","font-size":9,fill:"var(--mut)"});yl.textContent="mean DA-request";svg.appendChild(yl);
+
+  const delta=h5.da_request_delta,accRec=h5.acc_hab_silenced;
+  const v=document.getElementById("seedh5verdict");
+  let head;
+  if(h5.pass===true)head="<span class='pill ok'>clean pass</span>";
+  else if(accRec!=null&&accRec>=0.65&&delta!=null&&delta<=0.02)head="<span class='pill warn'>partial / honest</span>";
+  else head="<span class='pill bad'>not met</span>";
+  v.innerHTML=head+" &nbsp; Accuracy after silencing: <b>"+fmt(accRec)+"</b>"+(accRec!=null&&accRec>=0.95?" (ceiling)":"")+
+    ". &nbsp; DA-request Δ = <b>"+(delta!=null?delta.toFixed(4):"—")+"</b>"+(delta!=null&&Math.abs(delta)<0.05?" <b>(marginal)</b>":"")+".";
+
+  document.getElementById("seedh5note").textContent=
+    "Prediction: silencing the habitual system should reactivate the dormant goal-directed trace (DA-request rises). "+
+    "Honest read: accuracy recovers, but the DA-request rise is marginal — partial result, not a clean confirmation. "+
+    (h5.note?"Pipeline note: "+h5.note:"");
+
+  const gc=h5.gate_clamp_control;
+  document.getElementById("seedh5clamp").innerHTML=gc?
+    "<b>Gate-clamp control:</b> GD clamped acc=<b>"+fmt(gc.acc_gd_clamped)+"</b>, combined="+fmt(gc.acc_combined)+
+    ", habit-solo="+fmt(gc.acc_hab_solo)+", w_GD="+fmt(gc.w_gd_mean)+". "+
+    (gc.policy_preserved?"GD policy preserved — consistent with reactivating an intact solution.":
+     "GD policy NOT preserved — cannot yet distinguish genuine reactivation from a gate artifact."):
+    "Gate-clamp control not present — cannot distinguish genuine reactivation from a control-loop artifact.";
+}
+
+// ── per-seed supporting evidence ────────────────────────────────────────────
+function renderSeedSupport(){
+  const r=S.results;
+  if(!r){document.getElementById("seedsupportcard").style.display="none";return;}
+  document.getElementById("seedsupportcard").style.display="";
+  const grid=document.getElementById("seedsupportgrid");grid.innerHTML="";
+  if(r.h1){
+    const ci=r.h1.ci95||[];
+    grid.appendChild(card("H1 — basic competence",
+      kvHtml([["accuracy",fmt(r.h1.accuracy)],["k / n",r.h1.k+" / "+r.h1.n],
+              ["p-value",r.h1.p_value!=null?r.h1.p_value.toExponential(2):"—"],
+              ["95% CI",ci.length?"["+fmt(ci[0])+", "+fmt(ci[1])+"]":"—"],
+              ["verdict",pillHtml(r.h1.pass)]])));
+  }
+  if(r.h3){
+    const L=r.h3.learning||{},M=r.h3.maintenance||{};
+    grid.appendChild(card("H3 — devaluation dissociation",
+      "<svg viewBox='0 0 320 150' style='margin-bottom:6px'>"+devalSvg(L,M)+"</svg>"+
+      kvHtml([["learning drop",fmt(L.drop)+" (value-sensitive)"],
+              ["maintenance drop",fmt(M.drop)+" (value-free habit)"],
+              ["dissociation",pillHtml(r.h3.dissociation_pass)]])));
+  }
+  if(r.h4){
+    grid.appendChild(card("H4 — lesion double dissociation",
+      "<svg viewBox='0 0 320 160'>"+lesionSvg(r.h4)+"</svg>"+
+      "<p class='note'>learning: needs goal-directed; maintenance: survives GD lesion, needs habit.</p>"));
+  }
+  if(r.h6){
+    let body=kvHtml([["decoder acc",fmt(r.h6.decoder_acc)+(r.h6.decoder_sd!=null?" ± "+fmt(r.h6.decoder_sd):"")],
+                     ["participation ratio",fmt(r.h6.participation_ratio)],["verdict",pillHtml(r.h6.pass)]]);
+    if(r.h6.pca_coords&&r.h6.pca_coords.length)body="<svg viewBox='0 0 320 200'>"+pcaSvg(r.h6)+"</svg>"+body;
+    else if(r.h6.note)body="<p class='note'>"+r.h6.note+"</p>"+body;
+    grid.appendChild(card("H6 — delay-period attractor",body));
+  }
+}
+
+function card(title,inner){const d=document.createElement("div");d.className="card";d.style.padding="14px";d.innerHTML="<h2 style='margin-bottom:10px'>"+title+"</h2>"+inner;return d;}
+function kvHtml(rows){return "<dl class='kv'>"+rows.map(r=>"<dt>"+r[0]+"</dt><dd>"+r[1]+"</dd>").join("")+"</dl>";}
+function pillHtml(pass){return "<span class='pill "+(pass?"ok":"bad")+"'>"+(pass?"PASS":"fail")+"</span>";}
+
+function devalSvg(L,M){
+  const W=320,H=150,mB=24,mT=10,base=H-mB;
+  const groups=[["learning",L],["maintenance",M]];
+  const Y=v=>base-(base-mT)*(v||0);
+  let s="<line x1='34' y1='"+base+"' x2='"+W+"' y2='"+base+"' stroke='var(--line)'/>";
+  s+="<line x1='34' y1='"+Y(0.5)+"' x2='"+W+"' y2='"+Y(0.5)+"' stroke='var(--mut)' stroke-dasharray='4 4' opacity='0.5'/>";
+  const slot=(W-34)/groups.length,bw=slot*0.28;
+  groups.forEach((g,i)=>{
+    const x0=34+slot*i+slot*0.1,before=g[1].before||0,after=g[1].after||0;
+    s+="<rect x='"+x0+"' y='"+Y(before)+"' width='"+bw+"' height='"+(base-Y(before))+"' fill='var(--accent)' rx='2'/>";
+    s+="<rect x='"+(x0+bw+4)+"' y='"+Y(after)+"' width='"+bw+"' height='"+(base-Y(after))+"' fill='var(--warn)' rx='2'/>";
+    s+="<text x='"+(x0+bw)+"' y='"+(base+14)+"' text-anchor='middle' fill='var(--mut)' font-size='9'>"+g[0]+"</text>";
+  });
+  s+="<text x='2' y='"+(mT+6)+"' fill='var(--mut)' font-size='8'>acc</text>";
+  return s;
+}
+function lesionSvg(h4){
+  const W=320,H=160,mB=34,mT=10,base=H-mB;
+  const conds=["intact","gd","hab","both"],labels=["intact","-GD","-hab","-both"];
+  const groups=[["learning","var(--accent)"],["maintenance","var(--gd)"]];
+  const Y=v=>base-(base-mT)*(v||0);
+  let s="<line x1='30' y1='"+base+"' x2='"+W+"' y2='"+base+"' stroke='var(--line)'/>";
+  s+="<line x1='30' y1='"+Y(0.5)+"' x2='"+W+"' y2='"+Y(0.5)+"' stroke='var(--mut)' stroke-dasharray='4 4' opacity='0.5'/>";
+  const slot=(W-30)/conds.length,bw=slot*0.32;
+  conds.forEach((c,i)=>{
+    const x0=30+slot*i+slot*0.08;
+    groups.forEach((g,j)=>{
+      const v=(h4[g[0]]||{})[c];
+      s+="<rect x='"+(x0+j*(bw+3))+"' y='"+Y(v)+"' width='"+bw+"' height='"+(base-Y(v))+"' fill='"+g[1]+"' rx='2'/>";
+    });
+    s+="<text x='"+(x0+bw)+"' y='"+(base+13)+"' text-anchor='middle' fill='var(--mut)' font-size='9'>"+labels[i]+"</text>";
+  });
+  s+="<text x='32' y='"+(base+27)+"' fill='var(--accent)' font-size='8'>■ learning</text>";
+  s+="<text x='120' y='"+(base+27)+"' fill='var(--gd)' font-size='8'>■ maintenance</text>";
+  return s;
+}
+function pcaSvg(h6){
+  const W=320,H=200,pad=24;
+  const co=h6.pca_coords,y=h6.labels||[];
+  let xmn=1e9,xmx=-1e9,ymn=1e9,ymx=-1e9;
+  co.forEach(p=>{xmn=Math.min(xmn,p[0]);xmx=Math.max(xmx,p[0]);ymn=Math.min(ymn,p[1]);ymx=Math.max(ymx,p[1]);});
+  const sx=v=>pad+(W-2*pad)*((v-xmn)/((xmx-xmn)||1));
+  const sy=v=>(H-pad)-(H-2*pad)*((v-ymn)/((ymx-ymn)||1));
+  let s="";
+  co.forEach((p,i)=>{const col=y[i]===0?"var(--accent)":"var(--gd)";s+="<circle cx='"+sx(p[0]).toFixed(1)+"' cy='"+sy(p[1]).toFixed(1)+"' r='2.6' fill='"+col+"' opacity='0.6'/>";});
+  s+="<text x='"+pad+"' y='12' fill='var(--accent)' font-size='8'>● blocked=L</text>";
+  s+="<text x='110' y='12' fill='var(--gd)' font-size='8'>● blocked=R</text>";
+  s+="<text x='"+(W-2)+"' y='"+(H-2)+"' text-anchor='end' fill='var(--mut)' font-size='8'>PC1</text>";
+  return s;
+}
+
+// ── mode / trial controls (verbatim from visualiser.html) ───────────────────
+function setMode(mode,initial){
+  // guard: if no training trials, never switch into train mode
+  if(mode==="train"&&(!S.traj||!(S.traj.train||[]).length))mode="eval";
+  S.mode=mode;S.trial=0;S.step=0;stop();
+  document.getElementById("tabTrain").classList.toggle("active",mode==="train");
+  document.getElementById("tabEval").classList.toggle("active",mode==="eval");
+  // hide the training tab if there are no training trials
+  const hasTrain=S.traj&&(S.traj.train||[]).length>0;
+  document.getElementById("tabTrain").style.display=hasTrain?"":"none";
+  const arr=mode==="train"?S.traj.train:S.traj.eval;
+  const sel=document.getElementById("trialsel");
+  sel.min=0;sel.max=Math.max(0,(arr||[]).length-1);sel.value=0;
+  document.getElementById("rulenote").innerHTML=
+    "<b>Rule:</b> non-match. Sample open arm → hold through delay → reach the <b>opposite</b> (blocked) arm — circled in green. "+
+    "Path/agent colour tracks w_GD: <span style='color:var(--hab)'>green=habitual</span>, <span style='color:var(--gd)'>orange=goal-directed</span>. "+
+    (mode==="eval"?"Eval trials have no phase log.":"Phase shading in the w_GD strip below.");
+  drawMazeBase();selectTrial(0);
+}
+function selectTrial(i){
+  const arr=S.mode==="train"?S.traj.train:S.traj.eval;
+  const n=(arr||[]).length;
+  i=Math.max(0,Math.min(i,n-1));
+  S.trial=i;S.step=0;stop();
+  document.getElementById("trialsel").value=i;
+  const t=arr&&arr[i];
+  const tag=t?(S.mode==="train"&&t.episode!=null?"ep "+t.episode:"#"+i):"—";
+  document.getElementById("trialpill").textContent=
+    "trial "+(n?i+1:0)+"/"+n+(t?" · "+tag+" · blk "+t.blocked+" · "+(t.correct?"✓":"✗"):"");
+  drawMazeBase();renderTrialKV();renderStep();
+}
+document.getElementById("trialsel").addEventListener("input",e=>selectTrial(+e.target.value));
+document.getElementById("trialPrev").addEventListener("click",()=>selectTrial(S.trial-1));
+document.getElementById("trialNext").addEventListener("click",()=>selectTrial(S.trial+1));
+document.getElementById("tabTrain").addEventListener("click",()=>setMode("train",false));
+document.getElementById("tabEval").addEventListener("click",()=>setMode("eval",false));
+document.getElementById("scrub").addEventListener("input",e=>{S.step=+e.target.value;stop();renderStep();});
+document.getElementById("btnStep").addEventListener("click",()=>{const t=curTrial();if(!t)return;S.step=Math.min(S.step+1,t.w.length);renderStep();});
+document.getElementById("btnPlay").addEventListener("click",togglePlay);
+
+function togglePlay(){S.playing?stop():play();}
+function play(){
+  const t=curTrial();if(!t)return;
+  S.playing=true;document.getElementById("btnPlay").innerHTML="&#10074;&#10074; pause";
+  if(S.step>=t.w.length)S.step=0;
+  S.timer=setInterval(()=>{const tt=curTrial();if(S.step>=tt.w.length){stop();return;}S.step++;renderStep();},180);
+}
+function stop(){S.playing=false;clearInterval(S.timer);const b=document.getElementById("btnPlay");if(b)b.innerHTML="&#9654; play";}
+
+// ── H2 arm-vs-arm comparison ────────────────────────────────────────────────
 function renderH2(){
   const armsWithLogs = B.armOrder.filter(a=>B.arms[a].logs_agg);
   if(!armsWithLogs.length) return;
   document.getElementById("h2card").style.display="";
   const svg = document.getElementById("h2chart"); svg.innerHTML="";
-  const W=900,H=360,mL=52,mR=52,mT=18,mB=42;
+  const W=900,H=360,mL=52,mR=80,mT=18,mB=42;
   let xmin=1e18,xmax=-1e18;
   armsWithLogs.forEach(a=>{
     const ep=B.arms[a].logs_agg.episode;
@@ -232,41 +944,78 @@ function renderH2(){
     svg.appendChild(el("line",{x1:mL,y1:y,x2:W-mR,y2:y,stroke:"var(--line)","stroke-dasharray":"2 4",opacity:0.5}));
     const tx=el("text",{x:mL-8,y:y+3,"text-anchor":"end",fill:"var(--mut)"}); tx.textContent=v.toFixed(2); svg.appendChild(tx);
   });
-  svg.appendChild(el("line",{x1:mL,y1:Yacc(0.5),x2:W-mR,y2:Yacc(0.5),stroke:"var(--mut)","stroke-dasharray":"5 5",opacity:0.6}));
+  // 0.50 chance line (amber)
+  const y50=Yacc(0.5);
+  svg.appendChild(el("line",{x1:mL,y1:y50,x2:W-mR,y2:y50,stroke:"var(--warnamber)","stroke-dasharray":"5 5",opacity:0.7}));
+  const t50=el("text",{x:W-mR+4,y:y50+3,fill:"var(--warnamber)","font-size":9});t50.textContent="0.50 chance";svg.appendChild(t50);
+  // 0.80 H1 criterion line (green)
+  const y80=Yacc(0.80);
+  svg.appendChild(el("line",{x1:mL,y1:y80,x2:W-mR,y2:y80,stroke:"var(--hab)","stroke-dasharray":"6 4",opacity:0.7}));
+  const t80=el("text",{x:W-mR+4,y:y80+3,fill:"var(--hab)","font-size":9});t80.textContent="0.80 H1 criterion";svg.appendChild(t80);
   const xlab=el("text",{x:(mL+W-mR)/2,y:H-6,"text-anchor":"middle",fill:"var(--mut)"}); xlab.textContent="training episode"; svg.appendChild(xlab);
 
   const legend = document.getElementById("h2legend"); legend.innerHTML="";
+  const armPaths={}; // arm_name -> array of SVG elements (lines + bands)
   armsWithLogs.forEach((arm,i)=>{
     const col = armColor(i);
     const lg = B.arms[arm].logs_agg;
     const ep = lg.episode;
-    // shaded ±1sd band for combined_acc, then mean lines for combined/hab-solo/gd-solo
+    const myEls=[];
+    // shaded ±1sd band for combined_acc
     if(lg.combined_acc){
       const m=lg.combined_acc.mean, s=lg.combined_acc.sd;
       let d="M"+X(ep[0])+","+Yacc(Math.max(0,Math.min(1,m[0]+s[0])));
       for(let k=1;k<ep.length;k++) d+="L"+X(ep[k])+","+Yacc(Math.max(0,Math.min(1,m[k]+s[k])));
       for(let k=ep.length-1;k>=0;k--) d+="L"+X(ep[k])+","+Yacc(Math.max(0,Math.min(1,m[k]-s[k])));
       d+="Z";
-      svg.appendChild(el("path",{d,fill:col,opacity:0.10,stroke:"none"}));
+      const band=el("path",{d,fill:col,opacity:0.10,stroke:"none"});
+      band.dataset.band="1";
+      svg.appendChild(band); myEls.push(band);
     }
     const drawMean=(field,dash)=>{
       const f=lg[field]; if(!f) return;
       let d=""; for(let k=0;k<ep.length;k++) d+=(k?"L":"M")+X(ep[k])+","+Yacc(f.mean[k]);
       const p=el("path",{d,fill:"none",stroke:col,"stroke-width":2});
       if(dash) p.setAttribute("stroke-dasharray",dash);
-      svg.appendChild(p);
+      svg.appendChild(p); myEls.push(p);
     };
     drawMean("combined_acc",null);
     drawMean("hab_solo_acc","2 3");
     drawMean("gd_solo_acc","5 4");
     drawMean("w_gd","1 4");
+    armPaths[arm]=myEls;
 
     const sp=document.createElement("span");
+    sp.dataset.arm=arm;
     sp.innerHTML="<span class='swatch' style='background:"+col+"'></span>"+arm+" (n="+lg.n_seeds+") — solid=combined, short-dash=hab-solo, long-dash=gd-solo, dotted=w_GD";
     legend.appendChild(sp);
   });
 
-  // readout: compare hab-onset / wgd-drop-onset means across arms
+  // hover-to-highlight: dim other arms
+  legend.querySelectorAll('[data-arm]').forEach(item=>{
+    item.addEventListener('mouseenter',()=>{
+      const key=item.dataset.arm;
+      Object.entries(armPaths).forEach(([arm,els])=>{
+        const on=arm===key;
+        els.forEach(p=>{
+          const isBand=p.dataset.band==="1";
+          p.setAttribute('opacity',on?(isBand?'0.18':'1'):(isBand?'0.04':'0.15'));
+          if(!isBand)p.setAttribute('stroke-width',on?'3':'1');
+        });
+      });
+    });
+    item.addEventListener('mouseleave',()=>{
+      Object.values(armPaths).forEach(els=>{
+        els.forEach(p=>{
+          const isBand=p.dataset.band==="1";
+          if(isBand)p.setAttribute('opacity','0.10');
+          else{p.removeAttribute('opacity');p.setAttribute('stroke-width','2');}
+        });
+      });
+    });
+  });
+
+  // readout
   let msg = "";
   armsWithLogs.forEach(arm=>{
     const h2 = B.arms[arm].h2;
@@ -276,15 +1025,55 @@ function renderH2(){
   document.getElementById("h2read").textContent = msg;
 }
 
-// ----------------------------------------------------------------- H5 arm-vs-arm
+// ── H3 arm-vs-arm ───────────────────────────────────────────────────────────
+function renderH3(){
+  const armsWithH3 = B.armOrder.filter(a=>B.arms[a].h3 && B.arms[a].h3.n_seeds>0);
+  if(!armsWithH3.length) return;
+  document.getElementById("h3card").style.display="";
+  const svg=document.getElementById("h3chart"); svg.innerHTML="";
+  const W=900,H=300,mL=50,mR=20,mT=20,mB=60;
+  const Y=v=>(H-mB)-(H-mB-mT)*Math.max(0,Math.min(1,v||0));
+  svg.appendChild(el("line",{x1:mL,y1:H-mB,x2:W-mR,y2:H-mB,stroke:"var(--line)"}));
+  svg.appendChild(el("line",{x1:mL,y1:mT,x2:mL,y2:H-mB,stroke:"var(--line)"}));
+  [0,0.25,0.5,0.75,1].forEach(v=>{
+    const y=Y(v);
+    svg.appendChild(el("line",{x1:mL,y1:y,x2:W-mR,y2:y,stroke:"var(--line)","stroke-dasharray":"2 4",opacity:0.4}));
+    const tx=el("text",{x:mL-6,y:y+3,"text-anchor":"end",fill:"var(--mut)","font-size":9}); tx.textContent=v.toFixed(2); svg.appendChild(tx);
+  });
+  const slot=(W-mL-mR)/armsWithH3.length;
+  armsWithH3.forEach((arm,i)=>{
+    const h3=B.arms[arm].h3;
+    const [lm,ls]=h3.learning_drop_mean_sd||[null,null];
+    const [mm,ms]=h3.maintenance_drop_mean_sd||[null,null];
+    const x0=mL+slot*i+slot*0.12, bw=slot*0.32;
+    if(lm!=null){
+      svg.appendChild(el("rect",{x:x0,y:Y(lm),width:bw,height:(H-mB)-Y(lm),fill:"var(--accent)",opacity:0.85,rx:2}));
+      svg.appendChild(el("line",{x1:x0+bw/2,y1:Y(lm-ls),x2:x0+bw/2,y2:Y(lm+ls),stroke:"var(--ink)","stroke-width":1.2}));
+    }
+    if(mm!=null){
+      const x1=x0+bw+6;
+      svg.appendChild(el("rect",{x:x1,y:Y(mm),width:bw,height:(H-mB)-Y(mm),fill:"var(--gd)",opacity:0.85,rx:2}));
+      svg.appendChild(el("line",{x1:x1+bw/2,y1:Y(mm-ms),x2:x1+bw/2,y2:Y(mm+ms),stroke:"var(--ink)","stroke-width":1.2}));
+    }
+    const lab=el("text",{x:x0+bw,y:H-mB+16,"text-anchor":"middle",class:"barlabel"}); lab.textContent=arm; svg.appendChild(lab);
+    const sub=el("text",{x:x0+bw,y:H-mB+28,"text-anchor":"middle",class:"barlabel","font-size":9});
+    sub.textContent=h3.n_pass+"/"+h3.n_seeds+" dissoc. pass"; svg.appendChild(sub);
+  });
+  let msg="Prediction (H3, value-free habit): learning-phase drop large, maintenance-phase drop ~0. Per arm: ";
+  armsWithH3.forEach(arm=>{
+    const h3=B.arms[arm].h3;
+    msg += arm+": learning="+msFmt(h3.learning_drop_mean_sd)+", maintenance="+msFmt(h3.maintenance_drop_mean_sd)+". ";
+  });
+  document.getElementById("h3read").textContent = msg;
+}
+
+// ── H5 arm-vs-arm ───────────────────────────────────────────────────────────
 function renderH5(){
   const armsWithH5 = B.armOrder.filter(a=>B.arms[a].h5 && B.arms[a].h5.n_seeds>0);
   if(!armsWithH5.length) return;
   document.getElementById("h5card").style.display="";
   const svg=document.getElementById("h5chart"); svg.innerHTML="";
   const W=900,H=320,mL=60,mR=60,mT=20,mB=80;
-  // two panels side by side: left = DA-request delta per arm (with seed dots),
-  // right = gate-clamp GD-clamped accuracy per arm (with seed dots + pass/fail colour)
   const panelW=(W-mL-mR)/2-10;
   const drawPanel=(x0,values,title,yfmt,zeroLine)=>{
     const allVals = values.flatMap(v=>v.pts);
@@ -350,87 +1139,6 @@ function renderH5(){
       " ("+h5.gate_clamp_n_policy_preserved+"/"+h5.gate_clamp_n_seeds+" seeds preserve policy). ";
   });
   document.getElementById("h5read").textContent = msg;
-}
-
-// ----------------------------------------------------------------- H3 arm-vs-arm
-function renderH3(){
-  const armsWithH3 = B.armOrder.filter(a=>B.arms[a].h3 && B.arms[a].h3.n_seeds>0);
-  if(!armsWithH3.length) return;
-  document.getElementById("h3card").style.display="";
-  const svg=document.getElementById("h3chart"); svg.innerHTML="";
-  const W=900,H=300,mL=50,mR=20,mT=20,mB=60;
-  const Y=v=>(H-mB)-(H-mB-mT)*Math.max(0,Math.min(1,v||0));
-  svg.appendChild(el("line",{x1:mL,y1:H-mB,x2:W-mR,y2:H-mB,stroke:"var(--line)"}));
-  svg.appendChild(el("line",{x1:mL,y1:mT,x2:mL,y2:H-mB,stroke:"var(--line)"}));
-  [0,0.25,0.5,0.75,1].forEach(v=>{
-    const y=Y(v);
-    svg.appendChild(el("line",{x1:mL,y1:y,x2:W-mR,y2:y,stroke:"var(--line)","stroke-dasharray":"2 4",opacity:0.4}));
-    const tx=el("text",{x:mL-6,y:y+3,"text-anchor":"end",fill:"var(--mut)","font-size":9}); tx.textContent=v.toFixed(2); svg.appendChild(tx);
-  });
-  const slot=(W-mL-mR)/armsWithH3.length;
-  armsWithH3.forEach((arm,i)=>{
-    const h3=B.arms[arm].h3;
-    const [lm,ls]=h3.learning_drop_mean_sd||[null,null];
-    const [mm,ms]=h3.maintenance_drop_mean_sd||[null,null];
-    const x0=mL+slot*i+slot*0.12, bw=slot*0.32;
-    if(lm!=null){
-      svg.appendChild(el("rect",{x:x0,y:Y(lm),width:bw,height:(H-mB)-Y(lm),fill:"var(--accent)",opacity:0.85,rx:2}));
-      svg.appendChild(el("line",{x1:x0+bw/2,y1:Y(lm-ls),x2:x0+bw/2,y2:Y(lm+ls),stroke:"var(--ink)","stroke-width":1.2}));
-    }
-    if(mm!=null){
-      const x1=x0+bw+6;
-      svg.appendChild(el("rect",{x:x1,y:Y(mm),width:bw,height:(H-mB)-Y(mm),fill:"var(--gd)",opacity:0.85,rx:2}));
-      svg.appendChild(el("line",{x1:x1+bw/2,y1:Y(mm-ms),x2:x1+bw/2,y2:Y(mm+ms),stroke:"var(--ink)","stroke-width":1.2}));
-    }
-    const lab=el("text",{x:x0+bw,y:H-mB+16,"text-anchor":"middle",class:"barlabel"}); lab.textContent=arm; svg.appendChild(lab);
-    const sub=el("text",{x:x0+bw,y:H-mB+28,"text-anchor":"middle",class:"barlabel","font-size":9});
-    sub.textContent=h3.n_pass+"/"+h3.n_seeds+" dissoc. pass"; svg.appendChild(sub);
-  });
-  let msg="Prediction (H3, value-free habit): learning-phase drop large, maintenance-phase drop ~0. Per arm: ";
-  armsWithH3.forEach(arm=>{
-    const h3=B.arms[arm].h3;
-    msg += arm+": learning="+msFmt(h3.learning_drop_mean_sd)+", maintenance="+msFmt(h3.maintenance_drop_mean_sd)+". ";
-  });
-  document.getElementById("h3read").textContent = msg;
-}
-
-// ----------------------------------------------------------------- per-arm cards (seed drill-down)
-function renderArmCards(){
-  const grid = document.getElementById("armgrid");
-  grid.innerHTML="";
-  B.armOrder.forEach((arm,i)=>{
-    const a = B.arms[arm];
-    const col = armColor(i);
-    const card = document.createElement("div");
-    card.className = "card armcard";
-    card.style.borderLeftColor = col;
-    let seedRows = "";
-    (a.seed_dirs||[]).forEach((sd,j)=>{
-      const link = a.seed_links && a.seed_links[sd];
-      const accv = (a.h1.accuracy||[])[j];
-      seedRows += "<a class='btn' "+(link?("href='"+link+"' target='_blank'"):"")+
-        (link? "" : "style='opacity:.4;cursor:default'")+
-        ">"+sd+" (acc "+fmt2(accv)+")"+(link?" &rarr;":" (no traj.)")+"</a>";
-    });
-    card.innerHTML =
-      "<h3><span class='armname'>"+arm+"</span>"+
-      "<span class='pill "+(a.h1.gate_clear?"ok":"bad")+"'>H1 "+a.h1.n_pass+"/"+a.h1.n_seeds+"</span>"+
-      "<span class='note'>n="+a.n_seeds+" seed(s)</span></h3>"+
-      "<div class='kv'>"+
-        "<dt>H1 accuracy</dt><dd>"+msFmt(a.h1.accuracy_mean_sd)+"</dd>"+
-        "<dt>H2 hab-onset ep</dt><dd>"+msFmt(a.h2.hab_onset_mean_sd)+"</dd>"+
-        "<dt>H2 w_GD-drop ep</dt><dd>"+msFmt(a.h2.wgd_drop_onset_mean_sd)+"</dd>"+
-        "<dt>H3 learning drop</dt><dd>"+msFmt(a.h3.learning_drop_mean_sd)+"</dd>"+
-        "<dt>H3 maintenance drop</dt><dd>"+msFmt(a.h3.maintenance_drop_mean_sd)+"</dd>"+
-        "<dt>H5 DA-request Δ</dt><dd>"+msFmt(a.h5.da_request_delta_mean_sd)+"</dd>"+
-        "<dt>H5 gate-clamp preserved</dt><dd>"+a.h5.gate_clamp_n_policy_preserved+"/"+a.h5.gate_clamp_n_seeds+"</dd>"+
-        "<dt>H6 decoder acc</dt><dd>"+msFmt(a.h6.decoder_acc_mean_sd)+"</dd>"+
-      "</div>"+
-      "<div class='seedlinks'>"+seedRows+"</div>"+
-      "<p class='hint'>Click a seed to open its full per-seed viewer (trial player, H2 chart, H5 panel, "+
-      "static figures) &mdash; the same page <code>build_viz.py</code> produces.</p>";
-    grid.appendChild(card);
-  });
 }
 </script>
 </body>
