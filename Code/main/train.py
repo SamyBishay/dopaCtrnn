@@ -9,7 +9,6 @@ Two optimizers (goal-directed, habitual) are updated once per iteration
 over the summed losses from all B completed episodes.
 """
 import copy
-import math
 import os
 from collections import deque
 import numpy as np
@@ -70,18 +69,6 @@ def gae_batch(rewards, values, gamma, lam, valid):
     return adv, ret
 
 
-def scheduled_w_value(ep, cfg):
-    """E2 (gate_mode='scheduled'): a fixed w_gd ramp, function of episode count
-    only — never reads da_request. Centred on the same warmup/ramp window as
-    the DA-cost penalty, so the scheduled arm hands off on a comparable
-    timetable to the expression arm without being driven by the DA mechanism
-    (the contrast E2 needs: a schedule in disguise vs. a genuine DA gate)."""
-    center = cfg.da_warmup + cfg.da_ramp / 2
-    width  = max(cfg.da_ramp, 1) / 4
-    frac = 1.0 / (1.0 + math.exp((ep - center) / width))
-    return cfg.sched_w_low + (cfg.sched_w_high - cfg.sched_w_low) * frac
-
-
 class RunningNorm:
     """Rolling mean/std over a fixed window of scalar returns (for GD return
     normalisation). Mirrors the supervisor's deque-based standardisation."""
@@ -99,31 +86,39 @@ class RunningNorm:
         return float(arr.mean()), max(float(arr.std()), 1.0)
 
 
-def _train_batch(model, venv, cfg, opt_gd, opt_hab, da_lambda,
+def _train_batch(model, venv, cfg, opt_gd, opt_hab, force_w=None,
                  ret_norm=None, ape_scale=1.0):
     """One vectorised training iteration over B parallel episodes (single venv).
-    Returns (loss_gd, loss_hab, n_correct) where n_correct is the number of
-    episodes in this batch that reached the correct goal arm."""
+    Returns (loss_gd, loss_hab, n_correct, e_rpe, mean_steps) where n_correct
+    is the number of episodes in this batch that reached the correct goal arm."""
     B   = venv.B
     dev = cfg.device
     model.reset_state(B)
     venv.reset()
 
     # Per-step accumulators — each is a list of [B, ...] tensors
-    all_pi_gd, all_pi_h, all_w, all_da = [], [], [], []
+    all_pi_gd, all_w, all_da = [], [], []
     all_val, all_acts = [], []
     all_task_r, all_int_r, all_valid = [], [], []
+    # Detached pi_h, kept only to reconstruct the combined GD logits (the
+    # habitual policy is a no-grad input to the GD A2C term). The grad-carrying
+    # pi_h is consumed per-step by the KL update, not stored.
+    all_pi_h_det = []
 
     active = np.ones(B, dtype=bool)
     n_correct = 0
+    step_counts_done = []
+    kl_step_accum = None
+    hab_step_count = 0
+    hab_loss_total = 0.0
 
     for _ in range(cfg.max_episode_steps):
         obs_t      = _t(venv.obs(),     dev)      # [B, obs_dim]
         obs_hab_t  = _t(venv.obs_hab(), dev)      # [B, obs_dim_hab]
-        out        = model.step(obs_t, obs_hab_t)
+        out        = model.step(obs_t, obs_hab_t, force_w=force_w)
         acts   = Categorical(logits=out["combined"]).sample()  # [B]
 
-        all_pi_gd.append(out["pi_gd"]); all_pi_h.append(out["pi_h"])
+        all_pi_gd.append(out["pi_gd"]); all_pi_h_det.append(out["pi_h"].detach())
         all_w.append(out["w_gd"]);      all_da.append(out["da_request"])
         all_val.append(out["value"]);   all_acts.append(acts)
 
@@ -132,19 +127,49 @@ def _train_batch(model, venv, cfg, opt_gd, opt_hab, da_lambda,
         newly_done = valid_np & done
         if newly_done.any():
             n_correct += int(info["correct"][newly_done].sum())
+            step_counts_done.extend(int(venv.step_count[b]) for b in np.where(newly_done)[0])
         # rewards are zero for already-done envs by construction in venv.step
         all_task_r.append(torch.from_numpy(tr.astype(np.float32)))
         all_int_r.append(torch.from_numpy(ir.astype(np.float32)))
         all_valid.append(torch.from_numpy(valid_np))
+
+        # Per-step habitual KL update (per-step online signal, Villet-faithful)
+        if not getattr(cfg, "freeze_hab", False):
+            active_mask = torch.from_numpy(valid_np.astype(np.float32)).to(dev)  # [B]
+            if active_mask.any():
+                pi_h_step = out["pi_h"]          # [B, n_actions], has grad
+                pi_c_step = out["combined"].detach()  # [B, n_actions], no grad
+                kl_step = F.kl_div(
+                    F.log_softmax(pi_h_step, dim=-1),
+                    F.softmax(pi_c_step, dim=-1),
+                    reduction='batchmean',
+                ) * ape_scale
+                kl_step_accum = kl_step_accum + kl_step if kl_step_accum is not None else kl_step
+                hab_step_count += 1
+                if hab_step_count % cfg.hab_update_freq == 0:
+                    opt_hab.zero_grad()
+                    kl_step_accum.backward()
+                    torch.nn.utils.clip_grad_norm_(model.hab_params(), cfg.grad_clip)
+                    opt_hab.step()
+                    kl_step_accum = None
+                    hab_step_count = 0
+                hab_loss_total += float(kl_step.detach())
+
         active &= ~done
 
         if not active.any():
             break
 
+    if kl_step_accum is not None and not getattr(cfg, "freeze_hab", False):
+        opt_hab.zero_grad()
+        kl_step_accum.backward()
+        torch.nn.utils.clip_grad_norm_(model.hab_params(), cfg.grad_clip)
+        opt_hab.step()
+
     # Stack tensors: leading dim = T (steps taken)
-    pi_gd_t = torch.stack(all_pi_gd)    # [T, B, n_actions]
-    pi_h_t  = torch.stack(all_pi_h)
-    w_t     = torch.stack(all_w)         # [T, B]
+    pi_gd_t   = torch.stack(all_pi_gd)    # [T, B, n_actions]
+    pi_h_det_t = torch.stack(all_pi_h_det)  # [T, B, n_actions], no grad
+    w_t       = torch.stack(all_w)         # [T, B]
     da_t    = torch.stack(all_da)
     val_t   = torch.stack(all_val)
     acts_t  = torch.stack(all_acts)      # [T, B]
@@ -159,6 +184,8 @@ def _train_batch(model, venv, cfg, opt_gd, opt_hab, da_lambda,
     # GAE(λ) advantage and bootstrap-free returns on the per-step task reward.
     adv, returns = gae_batch(task_t, val_t.detach(), cfg.gamma,
                              cfg.gae_lambda, valid_t)       # [T, B], [T, B]
+
+    e_rpe = float(adv[valid_t].abs().mean()) if valid_t.any() else 0.0
 
     # Return normalisation: standardise the *targets* with a rolling window.
     if cfg.ret_norm and ret_norm is not None:
@@ -175,7 +202,7 @@ def _train_batch(model, venv, cfg, opt_gd, opt_hab, da_lambda,
     a_std  = adv_masked.std()  if adv_masked.numel() > 1 else adv.new_ones(())
     adv_n  = (adv - a_mean) / (a_std + 1e-8)
 
-    c     = w_t.unsqueeze(-1) * pi_gd_t + (1 - w_t.unsqueeze(-1)) * pi_h_t.detach()
+    c     = w_t.unsqueeze(-1) * pi_gd_t + (1 - w_t.unsqueeze(-1)) * pi_h_det_t
     dist  = Categorical(logits=c)
     logps = dist.log_prob(acts_t)                          # [T, B]
     ents  = dist.entropy()                                 # [T, B]
@@ -186,46 +213,13 @@ def _train_batch(model, venv, cfg, opt_gd, opt_hab, da_lambda,
     policy_l  = -((adv_n.detach() * logps) * valid_f).sum()
     critic_l  = cfg.value_coef * (((returns_n - val_t) ** 2) * valid_f).sum()
     entropy_l = -cfg.entropy_beta * (ents * valid_f).sum()
-    # Penalise the gain *effect* (gain_da * da_request)² not da_request² directly.
-    # This lets da_request stay non-zero for gating/reactivation while still
-    # discouraging unnecessarily large expression-gain excursions.
-    gain_da_sq = model.gd.gain_da.detach() ** 2
-    da_pen    = da_lambda * (gain_da_sq * (da_t ** 2) * valid_f).sum()
-    total_gd  = expr_gate * (policy_l + entropy_l) + critic_l + da_pen
+    total_gd  = expr_gate * (policy_l + entropy_l) + critic_l
 
-    # ===== habitual: value-free APE + intrinsic efficiency, vectorised =====
-    returns_int = discounted_batch(int_t, cfg.gamma, valid_t)   # [T, B]
-    # Per-episode baseline: masked column mean of intrinsic returns.
-    denom    = valid_f.sum(0).clamp_min(1.0)                    # [B]
-    base_int = (returns_int * valid_f).sum(0) / denom           # [B]
-    adv_int  = returns_int - base_int.unsqueeze(0)              # [T, B]
-
-    A   = pi_h_t.shape[-1]
-    ce  = F.cross_entropy(pi_h_t.reshape(-1, A), acts_t.reshape(-1),
-                          reduction="none").reshape(acts_t.shape)   # [T, B]
-    ce_l    = (ce * valid_f).sum()
-    logp_h  = Categorical(logits=pi_h_t).log_prob(acts_t)          # [T, B]
-    eff_l   = -((adv_int.detach() * logp_h) * valid_f).sum()
-    total_hab = cfg.ape_weight * ape_scale * ce_l + cfg.eff_weight * eff_l
-
-    # E4 (habit_rule="value_coupled"): add an A2C term on task reward for the
-    # habitual net. This makes the habit value-coupled, which should break
-    # devaluation sensitivity (the habit learns *what to do* for reward, not
-    # just *how the combined policy acts*).
-    if getattr(cfg, "habit_rule", "value_free") == "value_coupled":
-        adv_task_h, _ = gae_batch(task_t, val_t.detach(), cfg.gamma,
-                                   cfg.gae_lambda, valid_t)       # [T, B]
-        adv_task_h_n = (adv_task_h - adv_task_h[valid_t].mean()) / \
-                       (adv_task_h[valid_t].std() + 1e-8)
-        logp_h_task  = Categorical(logits=pi_h_t).log_prob(acts_t)  # [T, B]
-        value_coupled_l = -((adv_task_h_n.detach() * logp_h_task) * valid_f).sum()
-        total_hab = total_hab + cfg.value_coef * value_coupled_l
-
-    opt_gd.zero_grad(); total_gd.backward(retain_graph=True)
+    opt_gd.zero_grad(); total_gd.backward()
     torch.nn.utils.clip_grad_norm_(model.gd_params(), cfg.grad_clip); opt_gd.step()
-    opt_hab.zero_grad(); total_hab.backward()
-    torch.nn.utils.clip_grad_norm_(model.hab_params(), cfg.grad_clip); opt_hab.step()
-    return float(total_gd.detach()), float(total_hab.detach()), n_correct
+
+    mean_steps = float(np.mean(step_counts_done)) if step_counts_done else float('nan')
+    return float(total_gd.detach()), hab_loss_total, n_correct, e_rpe, mean_steps
 
 
 def _record_episode(model, env, cfg):
@@ -265,15 +259,20 @@ def train(cfg, verbose=True):
 
     logs = {k: [] for k in ("episode", "combined_acc", "hab_solo_acc",
                              "gd_solo_acc", "w_gd", "da_recruit", "delay",
-                             "fixed_delay_acc", "rolling_acc")}
+                             "fixed_delay_acc", "rolling_acc", "steps_to_goal")}
     rolling_buf = deque(maxlen=cfg.rolling_window)
     ckpt_learn = ckpt_maint = first_state = None
     train_trajs = []
-    delay_advance_count = 0
     total_episodes = 0
     start_it = 0
     ret_norm = RunningNorm(cfg.ret_norm_window)
     hab_solo_acc = 0.0   # last evaluated habitual-solo accuracy (for APE-decay)
+    # RPE-based DA gate state
+    rpe_mu  = 0.0
+    rpe_var = 1e-6
+    da_signal = 0.0
+    current_w_gd = 1.0   # starts fully open; closes once RPE criterion met
+    mean_steps = float('nan')
     comb_acc     = 0.0
     villet_learn_hist = []  # track eval windows where combined_acc >= threshold
     villet_maint_count = 0  # counter for consecutive evals at maintenance threshold
@@ -292,7 +291,6 @@ def train(cfg, verbose=True):
         logs                = st["logs"]
         if "rolling_acc" not in logs:          # old checkpoint compatibility
             logs["rolling_acc"] = [None] * len(logs["episode"])
-        delay_advance_count = st["delay_advance_count"]
         ret_norm.buf.extend(st.get("ret_norm_buf", []))
         ckpt_learn  = st.get("ckpt_learn"); ckpt_maint = st.get("ckpt_maint")
         first_state = st.get("first_state"); train_trajs = st.get("train_trajs", [])
@@ -309,13 +307,6 @@ def train(cfg, verbose=True):
         ep = total_episodes  # episode count at the START of this iteration
         total_episodes += B
 
-        if ep <= cfg.da_warmup:
-            da_lambda = 0.0
-        elif ep <= cfg.da_warmup + cfg.da_ramp:
-            da_lambda = cfg.da_cost_lambda * (ep - cfg.da_warmup) / cfg.da_ramp
-        else:
-            da_lambda = cfg.da_cost_lambda
-
         # APE-decay (teacher-fade analogue): fade the action-prediction-error
         # weight once the habitual solo policy has surpassed the combined policy.
         if cfg.ape_decay:
@@ -328,11 +319,25 @@ def train(cfg, verbose=True):
         else:
             ape_scale = 1.0
 
-        if cfg.gate_mode == "scheduled":
-            model.scheduled_w.fill_(scheduled_w_value(ep, cfg))
+        _, _, n_correct, e_rpe, mean_steps = _train_batch(
+            model, venv, cfg, opt_gd, opt_hab, force_w=current_w_gd,
+            ret_norm=ret_norm, ape_scale=ape_scale)
 
-        _, _, n_correct = _train_batch(model, venv, cfg, opt_gd, opt_hab, da_lambda,
-                                       ret_norm=ret_norm, ape_scale=ape_scale)
+        # RPE-based DA gate: normalise RPE by running stats, pass through sigmoid
+        rpe_mu  = 0.99 * rpe_mu  + 0.01 * e_rpe
+        rpe_var = 0.99 * rpe_var + 0.01 * (e_rpe - rpe_mu) ** 2
+        z = (e_rpe - rpe_mu) / (rpe_var ** 0.5 + 1e-6)
+        if z > 0:
+            da_signal = float(torch.sigmoid(torch.tensor(z)))
+        else:
+            da_signal = 0.999 * da_signal
+        # Gate stays open until hab is competent or warmup period hasn't elapsed
+        if it < cfg.rpe_warmup_iters or hab_solo_acc < cfg.early_stop_acc:
+            current_w_gd = 1.0
+        else:
+            current_w_gd = float(torch.sigmoid(
+                torch.tensor(cfg.rpe_alpha * da_signal + cfg.rpe_bias)))
+
         rolling_buf.extend([1] * n_correct + [0] * (B - n_correct))
 
         # Early stopping: 99% rolling accuracy over the last rolling_window episodes.
@@ -369,10 +374,12 @@ def train(cfg, verbose=True):
             logs["da_recruit"].append(comb["da_mean"])
             logs["delay"].append(venv.current_delay)
             logs["rolling_acc"].append(r_acc)
+            logs["steps_to_goal"].append(mean_steps)
 
-            # Fixed-delay eval (Villet comparison): only meaningful once curriculum
-            # has reached ceiling — below that, the delay itself is still changing.
-            at_ceiling = venv.current_delay >= cfg.delay_max
+            # Fixed-delay eval (Villet comparison): delay is fixed (cfg.delay), so
+            # the curriculum is always at ceiling — checkpoints capture from the
+            # first eval window.
+            at_ceiling = True  # delay is fixed (cfg.delay); no curriculum
             if at_ceiling:
                 fd = evaluate_vec(model, eval_env, cfg, cfg.eval_trials,
                                   fixed_delay=cfg.fixed_eval_delay, seed=ev_seed)
@@ -409,22 +416,6 @@ def train(cfg, verbose=True):
                 if villet_maint_count >= cfg.villet_maint_days:
                     ckpt_maint = copy.deepcopy(model.state_dict())
 
-            # Delay curriculum: advance when combined (GD-driven) accuracy is strong.
-            # Requiring hab accuracy too blocks the curriculum while habitual is still
-            # bootstrapping — supervisor advances on GD-solo threshold only.
-            # Once at ceiling, stop calling advance_delay() — the curriculum is done.
-            if not at_ceiling:
-                if comb["acc"] >= cfg.delay_advance_acc:
-                    delay_advance_count += 1
-                else:
-                    delay_advance_count = 0
-                if delay_advance_count >= cfg.delay_advance_evals:
-                    venv.advance_delay()
-                    eval_env.advance_delay()
-                    delay_advance_count = 0
-                    if verbose:
-                        print(f"  -> delay → {venv.current_delay}", flush=True)
-
             if verbose:
                 fd_str = f" fixedDA {logs['fixed_delay_acc'][-1]:.2f}" if at_ceiling else ""
                 print(f"ep {total_episodes:6d} | comb {comb['acc']:.2f} roll {r_acc:.2f} "
@@ -440,7 +431,7 @@ def train(cfg, verbose=True):
                 "torch_rng": torch.get_rng_state(),
                 "np_rng": rng.bit_generator.state,
                 "total_episodes": total_episodes, "iteration": it,
-                "logs": logs, "delay_advance_count": delay_advance_count,
+                "logs": logs,
                 "ret_norm_buf": list(ret_norm.buf),
                 "ckpt_learn": ckpt_learn, "ckpt_maint": ckpt_maint,
                 "first_state": first_state, "train_trajs": train_trajs,
