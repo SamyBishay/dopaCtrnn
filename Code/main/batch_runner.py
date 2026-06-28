@@ -129,6 +129,8 @@ def main():
                          "(default: 2.0); set 0 to disable memory-aware throttling")
     ap.add_argument("--dry-run", action="store_true",
                     help="print the commands that would run, without running them")
+    ap.add_argument("--open", action="store_true",
+                    help="after all seeds finish, build the visualiser and open seed0 in Firefox")
     args = ap.parse_args()
 
     exps = list(EXPERIMENTS.keys()) if args.exp == "all" else [args.exp]
@@ -232,6 +234,22 @@ def main():
         summary["all_arms_gate_clear"] = exp_ok
         with open(batch_dir / f"batch_summary_{ts}_{commit}.json", "w") as f:
             json.dump(summary, f, indent=2, default=float)
+
+    if args.open and not args.dry_run:
+        viz_script = HERE.parent / "visualisations" / "build_viz.py"
+        for exp_name in exps:
+            exp_def = EXPERIMENTS[exp_name]
+            batch_dir = Path(args.root) / exp_name
+            for arm in exp_def["arms"]:
+                arm_dir = batch_dir / arm / f"{ts}_{commit}"
+                print(f"  building visualiser for {exp_name}/{arm} ...", flush=True)
+                subprocess.run([sys.executable, str(viz_script), str(arm_dir)], check=False)
+                html = arm_dir / "seed0" / "viz_seed0.html"
+                if not html.exists():
+                    html = next(arm_dir.glob("**/viz_seed*.html"), None)
+                if html:
+                    print(f"  opening {html} in Firefox", flush=True)
+                    subprocess.Popen(["firefox", str(html)])
 
     if not overall_ok:
         print("\nWARNING: not every arm independently cleared the H1 learning gate.\n"
