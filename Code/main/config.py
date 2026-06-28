@@ -14,12 +14,12 @@ class Config:
                                       # difficulty=0 (no real corridor) vs stem=3 at difficulty=2,
                                       # while staying at h=6 (<=6) so the h>6 antechamber widening
                                       # (supervisor's tunl_a2c_two_area.py:160) never triggers.
-    sig_val: float     = 0.25         # phase-signal amplitude (was 1/(COLS-1) at 5-wide)
-    delay_start: int   = 15           # supervisor START_DELAY=15; must already stress WM at curriculum start
-    delay_max: int     = 40           # supervisor MAX_DELAY=40; our 15 was far too low to test WM
-    delay_advance_acc: float = 0.75   # accuracy threshold (combined) to lengthen delay
-    delay_advance_evals: int = 3      # consecutive evals above threshold → advance
-    max_episode_steps: int = 200      # raised from 80: delay_max=40 needs more steps per trial
+    sig_val: float     = 1.0           # multiplier kept for backward-compat; magnitude now computed
+                                      # from grid geometry in environment.py (1/(w-1) for sample,
+                                      # (1/(w-1))*0.1 for choice-onset)
+    delay: int         = 40           # fixed delay steps (replaces curriculum delay_start/delay_max);
+                                      # must be >= pushback path length (6 steps for default grid)
+    max_episode_steps: int = 90       # with fixed delay=40 + pushback=6 + ~15 nav steps, 90 gives headroom
     test_reward: float = 1.0          # reward for correct (non-match) choice
     step_cost: float   = 0.02         # supervisor STEP_RWD=-0.02; matches
     wait_cost: float   = 0.02         # per WAIT action — same as step_cost so WAIT isn't cheaper
@@ -32,7 +32,7 @@ class Config:
 
     # ---- network sizes (model.py) ----
     n_gd: int    = 512                # supervisor PFC_HIDDEN=512; 256 was likely too small
-    n_hab: int   = 512                # supervisor DLS_HIDDEN=512; match for fairness
+    n_hab: int   = 128                # 128 suffices for a 4-dim phase-signal policy; 512 was ~16x overparameterised
     hab_rank: int = 0                 # 0 = full-rank habitual W (default, original behaviour);
                                       # >0 = low-rank W_rec = (m @ n.T)/n_hab, rank=hab_rank.
                                       # Makes "habit is low-dimensional" structural. Try 2-8.
@@ -69,11 +69,16 @@ class Config:
     lr_hab: float   = 1e-3            # supervisor LR_DLS=1e-3; habitual benefits from faster imitation
     entropy_beta: float = 0.05        # higher than default to prevent early policy collapse
     value_coef: float   = 0.5         # supervisor VALUE_COEFF=0.5; matches
-    da_cost_lambda: float = 0.02      # penalty on (gain_da * da_request)² → penalise gain effect, not signal
-    rolling_window: int  = 20_000    # episodes in rolling accuracy window (10% of max)
+    noise_std: float = 0.05            # hidden-state noise injected during training in both networks
+    da_exc_base: float = 0.0          # DA excitability additive bias (off by default; E12 sets non-zero)
+    da_exc_gain: float = 0.0          # DA excitability gain multiplied by da_tonic
+    rpe_alpha: float  = 6.0           # RPE-based DA gate sigmoid slope
+    rpe_bias: float   = -2.0          # RPE-based DA gate sigmoid bias (keeps gate open at low RPE)
+    rpe_warmup_iters: int = 100       # iterations before RPE gate is allowed to close
+    freeze_hab: bool  = False         # if True, skip hab optimizer step entirely (ablation)
+    hab_update_freq: int = 1          # K: accumulate KL over K steps before opt_hab.step() (1=every step)
+    rolling_window: int  = 5_000     # 5k episodes is sufficient; 20k added a hard floor of ~157 iterations
     early_stop_acc: float = 0.99     # stop when rolling accuracy reaches this threshold
-    da_warmup: int  = 64000           # episodes with NO DA penalty; scaled to match new episode count
-    da_ramp: int    = 64000           # episodes to linearly ramp penalty to full
     grad_clip: float = 0.5            # supervisor GRAD_CLIP=0.5; tighter clipping stabilises RNN
     ape_weight: float  = 1.0          # habitual APE (action prediction error) weight
     eff_weight: float  = 0.10         # habitual intrinsic-efficiency weight (NOT task reward)
@@ -98,13 +103,13 @@ class Config:
                                 # Villet: 90 s fixed delay; our steps: ceiling=40 is the hardest equiv.
                                 # (maze len_edge=7, ~10-15 steps/trial; 90 s@1step/s >> our scale,
                                 # so we pin to the curriculum ceiling — the hardest condition we train.)
-    eval_every: int     = 100
-    eval_trials: int    = 200
+    eval_every: int     = 500          # was 100; each window runs 3 eval passes, 100 was significant overhead
+    eval_trials: int    = 100          # was 200; still sufficient for pass/fail during training
     final_trials: int   = 1000        # H1 binomial test
     attractor_trials: int = 300       # H6 PCA + decoder
 
     # ---- trajectory visualization ----
-    traj_log_every: int   = 50
+    traj_log_every: int   = 0          # 0 = off for timed runs; _record_episode adds overhead
     traj_eval_trials: int = 60
 
     # checkpoint selection (Villet's criteria, translated to eval windows)
