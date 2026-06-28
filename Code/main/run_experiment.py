@@ -87,6 +87,8 @@ def main():
                     help="Initial tau when --tau-mode=uniform (default 10.0)")
     ap.add_argument("--da-tau-gain", type=float, default=None,
                     help="Log-space tau shift magnitude per unit DA (default 0.5)")
+    ap.add_argument("--freeze-hab", action="store_true",
+                    help="E2 ablation: skip hab gradient updates (tests GD learns without hab)")
     args = ap.parse_args()
 
     cfg = Config(seed=args.seed, device=args.device)
@@ -130,6 +132,8 @@ def main():
         cfg.tau_uniform = args.tau_uniform
     if args.da_tau_gain is not None:
         cfg.da_tau_gain = args.da_tau_gain
+    if args.freeze_hab:
+        cfg.freeze_hab = True
 
     tag = f"seed{args.seed}" + ("_untrained" if args.untrained else "")
     outdir = os.path.join(args.outdir, tag)
@@ -146,7 +150,7 @@ def main():
         logs = None
         ckpt_learn = ckpt_maint = copy.deepcopy(model.state_dict())
         train_trajs = []
-        eval_env.current_delay = cfg.delay_max   # compare H7 at same delay as trained model
+        eval_env.current_delay = cfg.delay   # compare H7 at the fixed training delay
     else:
         model, logs, ckpt_learn, ckpt_maint, train_trajs, final_delay = train(cfg)
         eval_env.current_delay = final_delay   # eval at the delay reached during training

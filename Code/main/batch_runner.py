@@ -32,8 +32,10 @@ HERE = Path(__file__).parent
 EXPERIMENTS = {
     "e0": {"flag": None,           "arms": ["default"],
            "extra": {}},
-    "e2": {"flag": "gate_mode",    "arms": ["expression", "scheduled"],
-           "extra": {"da_split": True}},
+    "e2": {"flag": None,           "arms": ["main"],
+           "extra": {}},
+    "e2_ablation": {"flag": None,  "arms": ["freeze_hab"],
+                    "extra": {"freeze_hab": True}},
     "e3": {"flag": "da_components", "arms": ["both", "gain_only", "weights_only"],
            "extra": {"da_split": True}},
     "e4": {"flag": "habit_rule",   "arms": ["value_free", "value_coupled"],
@@ -59,6 +61,7 @@ CLI_FLAG = {
     "da_gain_mode": "--da-gain-mode",
     "tau_mode":     "--tau-mode",
     "da_tau":       "--da-tau",
+    "freeze_hab":   "--freeze-hab",
 }
 
 
