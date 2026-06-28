@@ -16,6 +16,10 @@ Concrete implementation plan derived from post-scrutiny fixes. Cross-reference `
 - **Stochastic action selection.** In `evaluate_vec` (`analysis.py`), replace `argmax` on action logits with `torch.multinomial(torch.softmax(pi, -1), 1)`. Note: the supervisor also uses sampled actions (not greedy).
 - **Eval seed** — already done. `train.py:358` passes `ev_seed = total_episodes`; `analysis.py:87` seeds from it.
 
+### Initialisation
+
+- **Match supervisor's W_in scale (F13).** In `model.py`, change `GDNet`'s input weight initialisation from `std=0.1` to `std=1.0` — matching the supervisor's PFC. This flips the dominance at init from recurrent-dominated (~13× recurrent over input) to input-dominated (~6× input over recurrent), consistent with her design. The recurrent init (`std≈0.9/√n`) is already close to hers (`1/√n`) and does not need changing.
+
 ### Training dynamics
 
 - **Noise injection.** Add `self.noise_std: float = 0.05` (tunable) to `config.py`. In `model.py`, after each `h = h + (dt/tau) * dh` (GDNet lines 117–119, HabNet line 198), before the `lesion` check:
@@ -34,6 +38,12 @@ Concrete implementation plan derived from post-scrutiny fixes. Cross-reference `
 - **APE teaching signal.** Currently hab imitates the *combined* policy's argmax. Change to use **GD's own output** as teacher. Rule per timestep in `train.py` (find `ape_loss`):
   - If `argmax(pi_gd) == WAIT`: one-hot WAIT target, cross-entropy.
   - Else: `softmax(pi_gd[N,S,E,W])` — soft target over the 4 movement directions, KL divergence or cross-entropy with soft targets.
+
+- **Habitual update frequency (Villet faithfulness).** Currently both GD and hab are updated from the same B=128 episode batch — hab's gradient is a 128-episode average, not an online signal. Villet's key finding is that mPFC learns first *and then* DLS learns much slower, with a window where the combination outperforms hab-solo. That learning-trajectory claim requires episode-resolution for the habitual update; B=128 averaging could compress or erase that window.
+
+  Fix: loop over the B episodes individually for the hab backward pass only, calling `opt_hab` once per episode. GD stays at B=128 (episodic/deliberate — batch is biologically appropriate). This asymmetry is the structural difference between the two systems, not a tuning choice.
+
+  Hardware note: don't switch to B=1 globally and reserve a GPU. At n=512, B=1 per step is a GEMV (matrix-vector), not GEMM — GPUs are inefficient for this and kernel-launch overhead dominates. Optimal setup: 8 parallel B=1 processes with `DOPA_NUM_THREADS=1`, one per physical core.
 
 - **DA gate: replace penalty ramp with RPE-based signal.** Remove `da_pen` from the loss entirely. Replace with:
 
@@ -62,9 +72,11 @@ Concrete implementation plan derived from post-scrutiny fixes. Cross-reference `
 
   **b. CONFINED sub-state** (mouse arrives at START during PUSHBACK): set `obs[2] = 1.0`. Block any action that would move the mouse off START. `delay_idx` continues counting.
 
-  **c. CHOICE transition** (when `delay_idx >= current_delay`): clear `obs[2] = 0.0`, set `sig_choice` as now. Assert at env init: `cfg.delay_start >= pushback_path_length`.
+  **c. CHOICE transition** (when `delay_idx >= current_delay`): clear `obs[2] = 0.0`, set `sig_choice` as now. Assert at env init: `cfg.delay >= pushback_path_length`.
 
-  `obs[2]` is currently always 0 and never written; repurposing it as the confinement bit is safe, no OBS_DIM change.
+  `obs[2]` is currently always 0 and never written; repurposing it as the confinement bit is safe, no OBS_DIM change. (`_sig[2]` maps to `obs[5]` in the GD observation — no conflict.)
+
+  **Fixed delay**: set `cfg.delay = 40` (supervisor's hard `MAX_DELAY`). Remove `delay_start` / `delay_end` / `delay_step` from `config.py`. The pushback steps are counted within the 40-step budget, so the net hold at START is `40 − pushback_path_length`.
 
 ### Analysis
 
@@ -81,21 +93,28 @@ Rerun everything with **≥5 seeds** under the corrected codebase. Single-seed r
 
 ```
 E0 → E1 → E2
-           ├─→ E3   DA output gain variants (gain_only / weights_only / combined)
-           ├─→ E4   value-free vs value-coupled APE
-           ├─→ E7   DA tau widen/deepen ──────────────────────────────────────┐
-           ├─→ E10  DA recurrent gain (NEW)                                   │
-           │        ├─→ E11  recurrent gain + DA plasticity ──────────────────┤
-           │        └─→ E9 ◄─────────────────────────────────────────────────-┤
-           │                 recurrent gain + dual tau                         │
-           └─→ E12  DA excitability (additive bias, NEW) ──────────────────────┤
-                    └─→ E13  excitability + plasticity + dual tau (NEW) ◄──────┘
-                             (parents: E12, E11, E7)
+           └─→ E6  DA uniform tau shortening
+                   ├─→ E3   DA output gain (gain_only / weights_only / combined)
+                   ├─→ E4   value-free vs value-coupled APE
+                   ├─→ E7   DA tau widen/deepen
+                   ├─→ E10  DA recurrent gain (NEW)
+                   │        ├─→ E11  recurrent gain + DA plasticity
+                   │        └─→ E9   recurrent gain + dual tau
+                   │                 (parents: E10, E7)
+                   └─→ E12  DA excitability (additive bias, NEW)
+                            └─→ E13  excitability + plasticity + dual tau
+                                     (parents: E12, E11, E7)
 ```
 
 **E2 arms:** ego/allo split (main) · freeze-hab ablation (skip `opt_hab.step()` — tests that GD reaches criterion without hab gradients). Drop the expression/scheduled arm — not load-bearing for any core claim.
 
+**E3**: DA output gain components — compare `gain_only` (readout scaling, current proxy), `weights_only` (recurrent-weight scaling), and `combined`. Isolates which locus of gain modulation drives the handoff effect.
+
 **E4:** reframe in the write-up as the reward-insensitivity falsification (value-coupled fails where value-free succeeds), not a sensitivity analysis.
+
+**E6**: uniform tau shortening — apply a single shortened tau to all GD units during high-DA phases. Minimal hypothesis: does any timescale compression improve handoff? Prerequisite before testing asymmetric (E7) or combined (E9) tau variants.
+
+**E7**: asymmetric tau modulation — fast tau for widen (decision) units, slow tau for deepen (maintenance) units, per Naudé et al. (2024) functional framing. Tests whether the *asymmetry* matters, vs. E6's uniform shortening.
 
 **E9** (renamed from "full Naudé"): two parents — adds recurrent gain (E10) to the widen/deepen tau (E7). Tests whether combining both DA mechanisms improves on either alone.
 
@@ -111,14 +130,6 @@ High DA early → higher effective LR → faster GD consolidation; low DA post-h
 
 **E13** (NEW): excitability + plasticity + dual tau. Three parents: E12, E11, E7. Most faithful implementation of Naudé's complete mechanism. Tests synergy: GD consolidates faster (plasticity) AND maintains deeper WM attractors (excitability + deepen tau) AND hands off more cleanly than any single mechanism.
 
----
-
-## 3. Cluster setup
-
-- **Check Grid5000 availability** before launching: `ssh <login>@access.grid5000.fr "oarstat -s"` or check the Grid5000 status page.
-- **Adapt the experiment launcher** (`submit_oar.sh`, `batch_runner.py`) to Grid5000: one OAR job per seed, 1 core + ~4 GB RAM per job, no GPU needed (model is small).
-- **Target batch_size=8** — gives meaningful per-trial dynamics (16× more online than current 128), 3 seeds fit in 3 hours on Grid5000 CPU nodes running in parallel. Do a timing benchmark on one 200k run at batch_size=8 before committing to the full sweep.
-- **Fixed delay** (confirmed from Villet): Villet uses a fixed 90 s delay throughout. Drop the delay curriculum entirely — set one fixed `delay` value in config, remove `delay_start`/`delay_end`/`delay_step`.
 
 ---
 
@@ -139,3 +150,5 @@ In `environment.py`:
 ## 5. Writing notes
 
 - **H5 / Discussion**: note that greedy eval made H5 a mathematical identity — silencing the habitual network collapsed to `argmax(w_gd * pi_gd)`, making accuracy recovery a consequence of the decoding rule, not the mechanism. With stochastic eval the test is genuine. State this plainly; do not frame the old result as a partial confirmation.
+
+- **hab_onset timing not comparable to supervisor (F13) — Results**: do not compare raw `hab_onset` episode counts to her results. Even after the W_in fix, the F6 seed-count issue means our single-seed E2–E9 timings carry a ±37% CV. Frame all timing results as within-experiment comparisons only.

@@ -254,3 +254,12 @@ Commit: –
 - Decided fixed delay throughout (confirmed from Villet fixed 90s), drop curriculum; target batch_size=8 on Grid5000 for 3 seeds in 3 hours
 - Added F14 fix (choice/sample signal normalised to maze width, match decay convention) and F15 (DA excitability: additive bias in GDNet dynamics)
 - Clarified Adam + LR scaling is correct for DA-modulated plasticity (gradient scaling cancelled by Adam normalisation)
+
+## 2026-06-28 — fixes_summary DAG restructure + delay fix
+Commit: -
+
+- Audited fixes_summary.md for internal inconsistencies; found 4 issues
+- Fixed delay spec: cfg.delay = 40, assertion now uses cfg.delay not cfg.delay_start, pushback counted within budget
+- Restructured DAG: E6 added as E2 sole child; E3/E4/E7/E10/E12 become E6 daughters
+- Replaced ambiguous right-column ASCII arrows with explicit text labels under E9 and E13
+- Added description blocks for E3, E6, E7; verified with subagent — all checks pass
