@@ -91,7 +91,7 @@ def evaluate_vec(model, env, cfg, n, force_w=None, lesion=None, mot=1.0):
                 obs_t  = _t(obs_np, dev)
                 out    = model.step(obs_t, obs_t, force_w=force_w,
                                     lesion=lesion, mot=mot)
-                acts   = out["combined"].argmax(-1)   # greedy [b]
+                acts   = Categorical(logits=out["combined"]).sample()   # stochastic [b]
 
                 for i in range(b):
                     if active[i]:
@@ -130,7 +130,7 @@ def h1_learning(model, env, cfg):
 def h2_handoff(logs):
     ep = np.array(logs["episode"]); hab = np.array(logs["hab_solo_acc"])
     w  = np.array(logs["w_gd"]);   comb = np.array(logs["combined_acc"])
-    cross = np.where(hab >= 0.8)[0]
+    cross = np.where(hab >= 0.99)[0]
     hab_onset = int(ep[cross[0]]) if len(cross) else None
     peak = np.maximum.accumulate(w)
     drop = np.where(w < 0.5 * peak)[0]
