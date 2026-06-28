@@ -263,3 +263,11 @@ Commit: -
 - Restructured DAG: E6 added as E2 sole child; E3/E4/E7/E10/E12 become E6 daughters
 - Replaced ambiguous right-column ASCII arrows with explicit text labels under E9 and E13
 - Added description blocks for E3, E6, E7; verified with subagent — all checks pass
+
+## 2026-06-28 — fixes.md F15 + fixes_summary audit
+Commit: –
+
+- Added F15 to fixes.md: DA-modulated excitability (additive bias in GDNet.step before nonlinearity), distinct from recurrent gain (E9) and tau modulation (E6/E7); includes combined E13 experiment proposal (excitability + plasticity + dual tau)
+- Audited fixes_summary against fixes.md; found F13 writing implications were missing
+- Added F13 implication to fixes_summary writing notes: hab_onset timing not comparable to supervisor (seed count + init difference)
+- Added code fix to fixes_summary: match supervisor W_in std=0.1→1.0, flagged to implement immediately after APE/A2C GAE change

@@ -18,7 +18,7 @@ Concrete implementation plan derived from post-scrutiny fixes. Cross-reference `
 
 ### Initialisation
 
-- **Match supervisor's W_in scale (F13).** In `model.py`, change `GDNet`'s input weight initialisation from `std=0.1` to `std=1.0` — matching the supervisor's PFC. This flips the dominance at init from recurrent-dominated (~13× recurrent over input) to input-dominated (~6× input over recurrent), consistent with her design. The recurrent init (`std≈0.9/√n`) is already close to hers (`1/√n`) and does not need changing.
+- **Match supervisor's W_in scale (F13).** In `model.py`, change `GDNet`'s input weight initialisation from `std=0.1` to `std=1.0` — matching the supervisor's PFC. This flips the dominance at init from recurrent-dominated (~13× recurrent over input) to input-dominated (~6× input over recurrent), consistent with her design. The recurrent init (`std≈0.9/√n`) is already close to hers (`1/√n`) and does not need changing. **Implement immediately after the APE teaching signal / A2C GAE change is in place** — both touch training dynamics and should go in together as one baseline reset before any ladder experiments are rerun.
 
 ### Training dynamics
 
