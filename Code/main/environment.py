@@ -124,7 +124,7 @@ class TMazeVecEnv:
         self.cfg = cfg
         self.rng = rng
         self.B   = int(batch_size)
-        self.current_delay = cfg.delay_start
+        self.current_delay = cfg.delay
         self.reward_scale  = 1.0
 
         self.g = _geometry(getattr(cfg, "len_edge", 5),
@@ -139,11 +139,16 @@ class TMazeVecEnv:
         self._l_arm_cols = np.arange(1, cx)
         self._r_arm_cols = np.arange(cx + 1, self.w - 1)
         self._arm_row = self.g["arm_row"]
+        # Pushback path: arm end → junction (cx-1 horizontal steps) → start (h-3 vertical steps)
+        self._pushback_len = (self.g["cx"] - 1) + (self.h - 3)
+        assert cfg.delay >= self._pushback_len, (
+            f"delay={cfg.delay} must be >= pushback_len={self._pushback_len} "
+            f"for grid len_edge={cfg.len_edge}, difficulty={cfg.difficulty}")
         self.pos = None
         self.reset()
 
     def advance_delay(self):
-        self.current_delay = min(self.current_delay + 1, self.cfg.delay_max)
+        pass  # delay is now fixed (cfg.delay); curriculum removed
 
     def reset(self, mask=None):
         """Reset all envs, or only those where mask is True."""
@@ -161,6 +166,7 @@ class TMazeVecEnv:
             self.done       = np.zeros(B, dtype=bool)
             self.correct    = np.zeros(B, dtype=bool)
             self._sig       = np.zeros((B, 3), dtype=np.float32)
+            self._confined  = np.zeros(B, dtype=np.float32)
         if n == 0:
             return self.obs()
         idx = np.where(mask)[0]
@@ -174,6 +180,7 @@ class TMazeVecEnv:
         self.done[idx]       = False
         self.correct[idx]    = False
         self._sig[idx]       = 0.0
+        self._confined[idx]  = 0.0
         return self.obs()
 
     def _passable_target(self, ny, nx, phase, blocked):
@@ -196,6 +203,7 @@ class TMazeVecEnv:
         o = np.zeros((self.B, OBS_DIM), dtype=np.float32)
         o[:, 0] = self.pos[:, 1] / (self.w - 1)
         o[:, 1] = self.pos[:, 0] / (self.h - 1)
+        o[:, 2] = self._confined  # confinement signal: 1.0 when agent is held at START in DELAY
         o[:, 3:6] = self._sig
         return o
 
@@ -249,8 +257,9 @@ class TMazeVecEnv:
             self._sig[at_jct] = 0.0
             open_L = at_jct & (self.open_side == "L")
             open_R = at_jct & (self.open_side == "R")
-            self._sig[open_L, 0] = self.cfg.sig_val
-            self._sig[open_R, 1] = self.cfg.sig_val
+            sample_sig = 1.0 / (self.w - 1)
+            self._sig[open_L, 0] = sample_sig
+            self._sig[open_R, 1] = sample_sig
             just_entered_sample = at_jct
 
         # SAMPLE -> DELAY (skip envs that just entered SAMPLE this step)
@@ -264,7 +273,6 @@ class TMazeVecEnv:
             self.phase[at_open_end] = DELAY
             task_r[at_open_end] += self.cfg.arm_end_bonus
             self.delay_idx[at_open_end] = 0
-            self.pos[at_open_end] = self._start  # TUNL: teleport back to maze entrance
             just_entered_delay = at_open_end
 
         # DELAY -> CHOICE (skip envs that just entered DELAY this step)
@@ -273,11 +281,49 @@ class TMazeVecEnv:
         if m.any():
             self._sig[m] *= 0.1
             self.delay_idx[m] += 1
+
+            # PUSHBACK: programmatically walk agents from arm end back to START.
+            # delay_idx has just been incremented, so steps 1..pushback_len are pushback.
+            in_pushback = m & (self.delay_idx <= self._pushback_len)
+            if in_pushback.any():
+                idx_pb = np.where(in_pushback)[0]
+                py_pb = self.pos[idx_pb, 0]
+                px_pb = self.pos[idx_pb, 1]
+                open_pb = self.open_side[idx_pb]
+
+                on_arm_row = (py_pb == self._arm_row)
+                at_jct_col = (px_pb == self._junction[1])
+                in_arm_not_jct = on_arm_row & ~at_jct_col
+
+                dy = np.zeros(len(idx_pb), dtype=np.int64)
+                dx = np.zeros(len(idx_pb), dtype=np.int64)
+
+                # Arm phase: move toward junction horizontally
+                dx[in_arm_not_jct & (open_pb == "L")] = 1    # L arm → East
+                dx[in_arm_not_jct & (open_pb == "R")] = -1   # R arm → West
+
+                # Stem phase (at junction or below): move South toward START
+                in_stem_or_jct = ~in_arm_not_jct
+                at_start_row = (py_pb == self._start[0])
+                dy[in_stem_or_jct & ~at_start_row] = 1
+
+                self.pos[idx_pb, 0] = py_pb + dy
+                self.pos[idx_pb, 1] = px_pb + dx
+
+            # CONFINED: agent has reached START (pushback complete), hold there.
+            # Set obs[2]=1.0 as a confinement signal. Agents can't move anyway
+            # (in_delay mask already blocks all action-driven movement in step()).
+            in_confined = m & (self.delay_idx > self._pushback_len)
+            self._confined[in_confined] = 1.0
+
+            # CHOICE transition
             to_choice = m & (self.delay_idx >= self.current_delay)
             if to_choice.any():
                 self.phase[to_choice] = CHOICE
+                self._confined[to_choice] = 0.0   # clear confinement signal
                 self._sig[to_choice] = 0.0
-                self._sig[to_choice, 2] = self.cfg.sig_val
+                choice_sig = (1.0 / (self.w - 1)) * 0.1
+                self._sig[to_choice, 2] = choice_sig
                 just_entered_choice = to_choice
 
         # CHOICE -> terminal. An env that *just* entered CHOICE this step is
