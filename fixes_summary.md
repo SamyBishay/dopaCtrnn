@@ -156,6 +156,20 @@ E0 → E1 → E2
 
 Note: E6→E3 and E6→E4 are **experimental ordering dependencies only** (run E6 as timing baseline before adding mechanisms) — not code dependencies.
 
+### Priority table under a 1-hour grid5000 budget
+
+All six must-survive hypotheses (H1–H3, H5–H7) are measured on the **E2 model itself**, not on the ladder. The entire H_tau ladder (E3–E13) should be **deferred to Future Work** and named as such in the mémoire. Concentrate all statistical power on E2.
+
+| Priority | Run | Seeds | Yields | Notes |
+|---|---|---|---|---|
+| **Must** | E2 main (ego/allo + all §1 fixes) | 5–8 | H1, H2, H3, H5, H6 | entire mémoire rests here |
+| **Free** | H7 untrained control | — | H7 | eval-only at init; fold into E2 analysis, zero cost |
+| If time | E2 freeze-hab ablation | 3 | strengthens H2/H5 | same code, one extra arm |
+| If time | E0/E1 baselines | 1–2 each | Discussion contrast | not hypotheses |
+| **Cut → Future Work** | E3, E4, E6, E7, E9, E10, E11, E12, E13 | 0 | H_tau ladder | name in Future Research, do not run |
+
+A clean, well-seeded E2 reporting an honest partial H5 is more credible than a sprawling tree of n=1 mechanism runs that are "uninterpretable" by the standards already set in CLAUDE.md §5.
+
 **E2 arms:** ego/allo split (main) · freeze-hab ablation. Drop the expression/scheduled arm.
 - Freeze-hab ablation: add `freeze_hab: bool = False` to `config.py`. When `True`, skip the per-step `opt_hab` update entirely in `_train_batch`. Tests that GD reaches criterion without hab gradients.
 
@@ -218,3 +232,68 @@ In `environment.py`:
   ```
 - **Sample signal** (`environment.py:252-253`): replace `self.cfg.sig_val` with `1.0 / (self.w - 1)`. For `len_edge=7`, `w=9`, this gives `0.125`.
 - Remove `sig_val` from `config.py` or repurpose as a multiplier (value 1.0) to avoid breaking any remaining read sites until explicitly cleaned up.
+
+---
+
+## 6. Runtime optimisations (grid5000, 1-hour budget)
+
+All changes in this section target wall-clock time. Apply them for any timed run; they do not affect correctness of the hypotheses.
+
+### Network sizes
+
+- **Set `n_hab = 128`** (down from 512). The habitual net is a 4-dim phase-signal Go/NoGo imitation policy — 512 units is gross overkill. This shrinks the recurrent matmul from `[128×512]@[512×512]` to `[128×128]@[128×128]` (~16× fewer FLOPs) and matters most now that hab gets per-step backward passes. Keep `n_gd = 512` for the headline runs (H6 WM-attractor capacity needs it); use `n_gd = 256` for smoke runs only.
+- **Alternative to shrinking n_hab**: set `hab_rank = 4` in `config.py` (low-rank path already in `model.py:170`). Keeps n_hab=512 but makes "habit is low-dimensional" structurally true rather than something recovered post-hoc. Pick one approach; don't do both.
+
+### Training loop
+
+- **`max_episode_steps`: 200 → 90.** With fixed `delay=40`, pushback=6 steps, and ~15 navigation steps, ~60 steps suffices for most episodes. 90 gives headroom. The delay phase (held at START) is what makes the current cap wasteful.
+- **`rolling_window`: 20_000 → 5_000.** The current value means early stopping cannot fire until `len(rolling_buf) >= 20_000` — a hard floor of ~157 iterations (~20k episodes) regardless of accuracy. At 5_000, a fast learner stops much earlier. 99% accuracy over 5k trials is still a strong criterion.
+- **`eval_every`: 100 → 500.** Each eval window runs 3 passes (combined/hab/gd) + fixed-delay; at every-100-episodes this is a significant fraction of wall time.
+- **`eval_trials`: 200 → 100.** Halves eval cost; still sufficient for pass/fail detection during training.
+- **`traj_log_every = 0`** for timed runs. The `_record_episode` call inside the training loop (every 50 episodes by default) adds overhead and produces output not needed for hypothesis testing.
+- **`ckpt_every = 0`** for timed runs unless resume is needed.
+
+### Hab per-step update — optimizer call batching
+
+The per-step `opt_hab.step()` introduces ~50–100 optimizer calls per training iteration. If this dominates, accumulate the KL loss over **K=5 steps** before stepping:
+```python
+if step_count % 5 == 0 or not active.any():
+    opt_hab.zero_grad(); kl_accum.backward(); opt_hab.step(); kl_accum = None
+else:
+    kl_accum = kl_accum + kl if kl_accum is not None else kl
+```
+This reduces optimizer overhead 5× while remaining effectively online. K is a config knob: `hab_update_freq: int = 1` (1 = every step, original intent; 5 = batched).
+
+### Seed parallelism on grid5000
+
+BLAS scales poorly past ~4 threads on these workloads; more processes beat more threads per process. Recommended launch:
+
+```bash
+# 40-core node, DOPA_NUM_THREADS=4 → 9 concurrent seeds
+for s in $(seq 0 7); do
+    DOPA_NUM_THREADS=4 python run_experiment.py --exp e2 --seed $s &
+done
+wait
+```
+
+Or use `DOPA_NUM_THREADS=2` for ~18 concurrent seeds (likely higher total throughput — confirm with the smoke run). Leave 2–4 cores headroom for the OS.
+
+**No mixed precision.** float16 has no BLAS acceleration on CPU and is often slower; stay float32.
+
+### Hab/GD parallelism — correct architecture
+
+**Keep single-process, sequential, two optimisers — exactly as `train.py` is now.** Do not split GD and hab into separate processes or threads.
+
+Reasoning:
+- **Hard step-level data dependency.** `pi_combined = w·pi_gd + (1−w)·pi_h`, and hab's per-step KL target is `softmax(pi_combined.detach())` — which requires `pi_gd` first. GD must run before hab within each step; no genuine concurrency is available.
+- **Autograd graphs are already cleanly separable.** GD uses `pi_h.detach()`, hab uses `pi_combined.detach()` — they don't fight over gradients. Two optimisers in one process is correct and sufficient.
+- **Process separation would be slower.** Serialising `pi_gd`/`pi_combined` (128×5 tensors) across a process boundary every step dwarfs the tens-of-µs matmuls being "parallelised".
+- **The parallelism that pays is across seeds** — embarrassingly parallel, zero inter-process communication, perfectly matched to a 40-core node (see seed parallelism above).
+
+The levers that actually reduce wall-clock time are algorithmic: shrink n_hab (16× fewer FLOPs), cap max_episode_steps, reduce rolling_window. Fix those; don't re-architect.
+
+### Smoke run before the parallel wave
+
+Before launching the full seed wave, run a single cheap smoke run to measure ep/s and confirm the corrected codebase still learns:
+- `n_gd=256, n_hab=128, delay=20, episodes=30_000, rolling_window=2_000`
+- If it doesn't reach 80% combined accuracy by ~20k episodes, the code changes broke something — do not launch the full wave blind.
