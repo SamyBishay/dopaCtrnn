@@ -271,3 +271,20 @@ Commit: –
 - Audited fixes_summary against fixes.md; found F13 writing implications were missing
 - Added F13 implication to fixes_summary writing notes: hab_onset timing not comparable to supervisor (seed count + init difference)
 - Added code fix to fixes_summary: match supervisor W_in std=0.1→1.0, flagged to implement immediately after APE/A2C GAE change
+
+## 2026-06-28 — Batch size, BPTT, and habitual update frequency
+Commit: ea6a774bbd02361274586d77a1a43591f9e5ef3a
+
+- Analysed B=128 vs B=1 trade-off: BLAS batching gives ~10-20x speedup; with 8 parallel B=1 processes (DOPA_NUM_THREADS=1) net slowdown is ~1.25-2.5x vs current B=128.
+- Confirmed both our code and supervisor use full BPTT through the episode; supervisor does a no_grad rollout then re-forward (2T passes), ours builds the graph live (T passes — faster).
+- Identified faithfulness issue: Villet reports GD learns first then DLS much slower, with a window where combination > hab_solo. B=128 averaging for hab could compress or erase that window.
+- Decision: hab should update per-episode (B=1 online), GD stays at B=128 (episodic/deliberate). GPU not worth it at n=512 B=1 (GEMV not GEMM); use 8 parallel CPU processes instead.
+- Added habitual update frequency note to current/fixes_summary.md under Training dynamics.
+
+## 2026-06-28 — APE/A2C timing clarification + fixes_summary corrections
+Commit: –
+
+- Clarified APE vs A2C backprop timing: APE backprops at every single step (no future info needed); A2C at episode end only (GAE requires future rewards); a batch = one episode
+- Decided against continuous 2D action space — discrete N/S/E/W/WAIT stays
+- Updated fixes_summary APE teaching signal: keep combined policy as teacher (not GD-only), soft KL over all 5 actions every step, no WAIT special case — matches supervisor exactly
+- "Habitual update frequency" section in fixes_summary still inconsistent with batch=1 episode framing — needs cleanup next session
